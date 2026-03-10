@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["go", "bun"]
+
+[phases.build]
+cmds = ["make all"]
+
+[start]
+cmd = "./out"
