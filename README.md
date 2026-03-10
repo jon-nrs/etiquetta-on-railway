@@ -30,7 +30,7 @@ To run Etiquetta on Railway:
 2. Connect your GitHub to Railway
 3. In your Railway Dashboard, hit `+ New`
 4. Choose `GitHub Repository`
-5. Choose the repo you just created
+5. Choose the `Railway config` branch of the repo you just created
 6. Open the configuration panel, and [add the variables shown here](https://github.com/caioricciuti/etiquetta?tab=readme-ov-file#configuration)
 7. Add another variable called `ALLOWED_HOSTS`. The value should be your public Railway URL (found in the Settings tab under Public Networking) 
 8. In Settings, add the following:
