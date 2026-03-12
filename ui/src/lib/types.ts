@@ -242,18 +242,118 @@ export interface ConsentRecord {
   visitor_hash: string
   categories: Record<string, boolean>
   config_version: number
-  action: 'accept_all' | 'reject_all' | 'custom'
+  action: 'show' | 'accept_all' | 'reject_all' | 'custom'
   user_agent: string
   geo_country: string
   timestamp: number
 }
 
+export interface ConsentTimeseriesPoint {
+  period: string
+  shows: number
+  accept_all: number
+  reject_all: number
+  custom: number
+}
+
+export interface ConsentGeoBreakdown {
+  country: string
+  shows: number
+  responses: number
+  accept_all: number
+  reject_all: number
+  custom: number
+  consent_rate: number
+}
+
 export interface ConsentAnalytics {
-  total_records: number
+  shows: number
+  total_responses: number
   accept_all_count: number
   reject_all_count: number
   custom_count: number
   consent_rate: number
+  response_rate: number
+  timeseries: ConsentTimeseriesPoint[]
+  geo_breakdown: ConsentGeoBreakdown[]
+}
+
+// Privacy / GDPR types
+export interface PrivacyAuditCheck {
+  id: string
+  category: string
+  name: string
+  description: string
+  status: 'pass' | 'warn' | 'info'
+  detail: string
+}
+
+export interface CookieInventoryItem {
+  name: string
+  purpose: string
+  type: string
+  set_by: string
+  visitor_facing: boolean
+  duration: string
+  description: string
+}
+
+export interface DataInventoryItem {
+  field: string
+  purpose: string
+  pii: string
+  note: string
+}
+
+export interface DomainConsentStatus {
+  domain_id: string
+  domain_name: string
+  domain: string
+  has_consent: boolean
+  version: number
+}
+
+export interface PrivacyAudit {
+  checks: PrivacyAuditCheck[]
+  cookie_inventory: CookieInventoryItem[]
+  data_inventory: DataInventoryItem[]
+  domain_consents: DomainConsentStatus[]
+  storage_summary: Record<string, number>
+  data_retention_days: number
+  generated_at: string
+}
+
+export interface VisitorLookupResult {
+  visitor_hash: string
+  tables: Record<string, number>
+  total_records: number
+}
+
+export interface ErasureResult {
+  visitor_hash: string
+  deleted: Record<string, number>
+  total_deleted: number
+  erased_at: string
+}
+
+// Audit Log types
+export interface AuditLogEntry {
+  id: string
+  timestamp: number
+  user_id: string
+  user_email: string
+  action: string
+  resource_type: string
+  resource_id: string
+  detail: string
+  ip_address: string
+}
+
+export interface AuditLogResponse {
+  entries: AuditLogEntry[]
+  total: number
+  page: number
+  per_page: number
 }
 
 // Tag Manager types

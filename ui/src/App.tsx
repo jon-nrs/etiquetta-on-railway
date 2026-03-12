@@ -15,8 +15,9 @@ import {
   GeoIPSettings,
   AccountSettings,
   UsersSettings,
-  ConsentSettings,
 } from './pages/settings'
+import { ConsentDashboard, ConsentConfig } from './pages/consent'
+import { PrivacyCenter } from './pages/privacy'
 import { TagManager, TagManagerContainer } from './pages/tag-manager'
 import { Explorer } from './pages/Explorer'
 import { Login } from './pages/Login'
@@ -44,6 +45,7 @@ import {
   MapPin,
   User,
   Database,
+  Fingerprint,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -237,7 +239,9 @@ function AppSidebar() {
   const navigation = [
     { path: '/', name: 'Dashboard', icon: BarChart3 },
     { path: '/bots', name: 'Bot Analysis', icon: Bot },
+    { path: '/consent', name: 'Consent', icon: Shield, pro: 'consent' },
     { path: '/fraud', name: 'Ad Fraud', icon: ShieldAlert, pro: 'ad_fraud' },
+    { path: '/privacy', name: 'Privacy Center', icon: Fingerprint, adminOnly: true },
     { path: '/explorer', name: 'Data Explorer', icon: Database, adminOnly: true },
     { path: '/tag-manager', name: 'Tag Manager', icon: Tags, pro: 'tag_manager' },
   ]
@@ -246,7 +250,6 @@ function AppSidebar() {
     { path: '/settings/domains', name: 'Domains', icon: Globe },
     { path: '/settings/email', name: 'Email', icon: Mail, adminOnly: true },
     { path: '/settings/geoip', name: 'GeoIP', icon: MapPin, adminOnly: true },
-    { path: '/settings/consent', name: 'Consent', icon: Shield, pro: 'consent' },
     { path: '/settings/account', name: 'Account', icon: User },
     { path: '/settings/users', name: 'Users', icon: UsersIcon, adminOnly: true, pro: 'multi_user' },
     { path: '/settings/license', name: 'License', icon: Key },
@@ -294,7 +297,7 @@ function AppSidebar() {
                 <SidebarMenuItem key={item.path}>
                   <SidebarMenuButton
                     asChild
-                    isActive={location.pathname === item.path}
+                    isActive={item.path === '/' ? location.pathname === '/' : location.pathname.startsWith(item.path)}
                     tooltip={item.name}
                   >
                     <Link to={item.path}>
@@ -396,7 +399,9 @@ function AppLayout() {
               <Route path="/settings/geoip" element={<GeoIPSettings />} />
               <Route path="/settings/account" element={<AccountSettings />} />
               <Route path="/settings/users" element={<UsersSettings />} />
-              <Route path="/settings/consent" element={<ConsentSettings />} />
+              <Route path="/privacy" element={<PrivacyCenter />} />
+              <Route path="/consent" element={<ConsentDashboard />} />
+              <Route path="/consent/settings" element={<ConsentConfig />} />
               <Route path="/tag-manager" element={<TagManager />} />
               <Route path="/tag-manager/:containerId" element={<TagManagerContainer />} />
               <Route path="/settings/license" element={
