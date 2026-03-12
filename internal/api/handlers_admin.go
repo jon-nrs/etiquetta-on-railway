@@ -102,6 +102,7 @@ func (h *Handlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logAudit(r, "create", "user", id, fmt.Sprintf("Created user %s (role: %s)", input.Email, input.Role))
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id})
 }
 
@@ -115,6 +116,7 @@ func (h *Handlers) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logAudit(r, "delete", "user", id, "User deleted")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -181,6 +183,7 @@ func (h *Handlers) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	h.logAudit(r, "update", "user", id, fmt.Sprintf("Updated user (name: %s, role: %s)", input.Name, input.Role))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -285,6 +288,7 @@ func (h *Handlers) CreateDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logAudit(r, "create", "domain", id, fmt.Sprintf("Created domain %s (%s)", input.Name, domain))
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"id":         id,
 		"name":       input.Name,
@@ -311,6 +315,7 @@ func (h *Handlers) DeleteDomain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logAudit(r, "delete", "domain", id, "Domain deleted")
 	w.WriteHeader(http.StatusNoContent)
 }
 

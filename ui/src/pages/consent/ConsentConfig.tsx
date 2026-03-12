@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { useConsentConfig, useSaveConsentConfig, useConsentDomainId } from '@/hooks/useConsent'
+import { useConsentConfig, useSaveConsentConfig, useToggleConsentBanner, useConsentDomainId } from '@/hooks/useConsent'
 import { FeatureGate } from '@/components/FeatureGate'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,6 +32,7 @@ function ConsentConfigContent() {
   const domainId = useConsentDomainId()
   const { data: config, isLoading } = useConsentConfig(domainId)
   const saveConfig = useSaveConsentConfig(domainId)
+  const toggleBanner = useToggleConsentBanner(domainId)
 
   const [categories, setCategories] = useState<ConsentCategory[]>(DEFAULT_CATEGORIES)
   const [appearance, setAppearance] = useState<ConsentAppearance>(DEFAULT_APPEARANCE)
@@ -111,8 +112,30 @@ function ConsentConfigContent() {
     )
   }
 
+  const isActive = config?.is_active ?? false
+
   return (
     <div className="space-y-6">
+      {/* Enable/Disable Toggle */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-medium">Consent Banner</p>
+              <p className="text-sm text-muted-foreground">
+                Enable to show cookie consent banner on your site. Only needed if you use third-party scripts.
+              </p>
+            </div>
+            <Switch
+              checked={isActive}
+              onCheckedChange={(checked) => toggleBanner.mutate(checked)}
+              disabled={!config || toggleBanner.isPending}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className={!isActive ? 'opacity-50 pointer-events-none' : ''}>
       {/* Categories */}
       <Card>
         <CardHeader>
@@ -365,6 +388,7 @@ function ConsentConfigContent() {
           <Save className="h-4 w-4 mr-2" />
           {saveConfig.isPending ? 'Saving...' : 'Save Configuration'}
         </Button>
+      </div>
       </div>
     </div>
   )

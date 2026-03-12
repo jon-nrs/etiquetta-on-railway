@@ -58,6 +58,23 @@ export function useSaveConsentConfig(domainId?: string) {
   })
 }
 
+export function useToggleConsentBanner(domainId?: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (isActive: boolean) =>
+      fetchAPI<ConsentConfig>(`/api/consent/configs/${domainId}/toggle`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: isActive }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['consent'] })
+      toast.success('Consent banner updated')
+    },
+    onError: (err) => toast.error('Failed to toggle consent banner', { description: err.message }),
+  })
+}
+
 export function useConsentConfigHistory(domainId?: string) {
   return useQuery({
     queryKey: ['consent', 'history', domainId],

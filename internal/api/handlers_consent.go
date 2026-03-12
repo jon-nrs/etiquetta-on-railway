@@ -175,7 +175,7 @@ func (h *Handlers) GetConsentConfig(w http.ResponseWriter, r *http.Request) {
 		SELECT id, domain_id, version, is_active, categories, appearance, translations,
 		       cookie_name, cookie_expiry_days, auto_language, geo_targeting, created_at, updated_at
 		FROM consent_configs
-		WHERE domain_id = ? AND is_active = 1
+		WHERE domain_id = ?
 		ORDER BY version DESC
 		LIMIT 1
 	`, domainID).Scan(
@@ -557,6 +557,85 @@ func (h *Handlers) GetConsentRecords(w http.ResponseWriter, r *http.Request) {
 		"total":    total,
 		"page":     page,
 		"per_page": perPage,
+	})
+}
+
+// ToggleConsentBanner enables or disables the consent banner for a domain
+func (h *Handlers) ToggleConsentBanner(w http.ResponseWriter, r *http.Request) {
+	domainID := chi.URLParam(r, "domainId")
+
+	var req struct {
+		IsActive bool `json:"is_active"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON")
+		return
+	}
+
+	now := time.Now().UnixMilli()
+
+	result, err := h.db.Conn().Exec(`
+		UPDATE consent_configs SET is_active = ?, updated_at = ?
+		WHERE domain_id = ? AND version = (SELECT MAX(version) FROM consent_configs WHERE domain_id = ?)
+	`, req.IsActive, now, domainID, domainID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to toggle consent banner")
+		return
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		writeError(w, http.StatusNotFound, "No consent config found for this domain")
+		return
+	}
+
+	action := "disabled"
+	if req.IsActive {
+		action = "enabled"
+	}
+	h.logAudit(r, "toggle", "consent_banner", domainID, "Consent banner "+action)
+
+	// Return updated config
+	var (
+		id, domID                                          string
+		version, cookieExpiry                               int
+		isActive, autoLanguage                             int
+		categories, appearance, translations, geoTargeting string
+		cookieName                                         string
+		createdAt, updatedAt                               int64
+	)
+	err = h.db.Conn().QueryRow(`
+		SELECT id, domain_id, version, is_active, categories, appearance, translations,
+		       cookie_name, cookie_expiry_days, auto_language, geo_targeting, created_at, updated_at
+		FROM consent_configs
+		WHERE domain_id = ?
+		ORDER BY version DESC
+		LIMIT 1
+	`, domainID).Scan(
+		&id, &domID, &version, &isActive,
+		&categories, &appearance, &translations,
+		&cookieName, &cookieExpiry, &autoLanguage,
+		&geoTargeting, &createdAt, &updatedAt,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to read updated config")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"id":                 id,
+		"domain_id":          domID,
+		"version":            version,
+		"is_active":          isActive != 0,
+		"categories":         json.RawMessage(categories),
+		"appearance":         json.RawMessage(appearance),
+		"translations":       json.RawMessage(translations),
+		"cookie_name":        cookieName,
+		"cookie_expiry_days": cookieExpiry,
+		"auto_language":      autoLanguage != 0,
+		"geo_targeting":      json.RawMessage(geoTargeting),
+		"created_at":         createdAt,
+		"updated_at":         updatedAt,
 	})
 }
 
