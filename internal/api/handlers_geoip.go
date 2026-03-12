@@ -102,6 +102,7 @@ func (h *Handlers) UpdateGeoIPSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	h.logAudit(r, "update", "settings", "geoip", "GeoIP settings updated")
 	w.WriteHeader(http.StatusNoContent)
 }
 

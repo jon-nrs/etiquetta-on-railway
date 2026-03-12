@@ -2,7 +2,9 @@ package api
 
 import (
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -123,6 +125,42 @@ func (h *Handlers) ExportEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
+	cols, _ := rows.Columns()
+	format := r.URL.Query().Get("format")
+
+	if format == "csv" {
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", "attachment; filename=events.csv")
+
+		cw := csv.NewWriter(w)
+		defer cw.Flush()
+
+		cw.Write(cols)
+
+		for rows.Next() {
+			values := make([]interface{}, len(cols))
+			valuePtrs := make([]interface{}, len(cols))
+			for i := range values {
+				valuePtrs[i] = &values[i]
+			}
+			rows.Scan(valuePtrs...)
+
+			record := make([]string, len(cols))
+			for i, v := range values {
+				if v == nil {
+					record[i] = ""
+				} else if b, ok := v.([]byte); ok {
+					record[i] = string(b)
+				} else {
+					record[i] = fmt.Sprintf("%v", v)
+				}
+			}
+			cw.Write(record)
+		}
+		return
+	}
+
+	// Default: JSON
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Content-Disposition", "attachment; filename=events.json")
 
@@ -130,7 +168,6 @@ func (h *Handlers) ExportEvents(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("["))
 	first := true
 
-	cols, _ := rows.Columns()
 	for rows.Next() {
 		values := make([]interface{}, len(cols))
 		valuePtrs := make([]interface{}, len(cols))

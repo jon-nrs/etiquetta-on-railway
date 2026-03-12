@@ -117,6 +117,7 @@ func (h *Handlers) UpdateEmailSettings(w http.ResponseWriter, r *http.Request) {
 		svc.Set(settingKey, strVal)
 	}
 
+	h.logAudit(r, "update", "settings", "email", "Email settings updated")
 	w.WriteHeader(http.StatusNoContent)
 }
 

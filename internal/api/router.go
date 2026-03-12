@@ -213,6 +213,7 @@ func NewRouter(db *database.DB, enricher *enrichment.Enricher, licenseManager *l
 				r.Use(licensing.RequireFeature(licenseManager, licensing.FeatureConsent))
 				r.Get("/consent/configs/{domainId}", h.GetConsentConfig)
 				r.Post("/consent/configs/{domainId}", h.SaveConsentConfig)
+				r.Put("/consent/configs/{domainId}/toggle", h.ToggleConsentBanner)
 				r.Get("/consent/configs/{domainId}/history", h.GetConsentConfigHistory)
 				r.Get("/consent/analytics/{domainId}", h.GetConsentAnalytics)
 				r.Get("/consent/records/{domainId}", h.GetConsentRecords)
@@ -258,6 +259,16 @@ func NewRouter(db *database.DB, enricher *enrichment.Enricher, licenseManager *l
 				r.Post("/users", h.CreateUser)
 				r.Put("/users/{id}", h.UpdateUser)
 				r.Delete("/users/{id}", h.DeleteUser)
+			})
+
+			// Admin only - Privacy / GDPR
+			r.Group(func(r chi.Router) {
+				r.Use(authMiddleware.RequireAdmin)
+				r.Get("/privacy/audit", h.GetPrivacyAudit)
+				r.Get("/privacy/audit-log", h.GetAuditLog)
+				r.Get("/privacy/export/{visitorHash}", h.ExportVisitorData)
+				r.Get("/privacy/erasure/{visitorHash}", h.LookupVisitorData)
+				r.Delete("/privacy/erasure/{visitorHash}", h.EraseVisitorData)
 			})
 
 			// Admin only - Data Explorer

@@ -436,6 +436,28 @@ func (db *DB) Migrate() error {
 				);
 			`,
 		},
+		{
+			version: 14,
+			sql: `
+				-- Admin audit log for GDPR compliance
+				CREATE TABLE IF NOT EXISTS audit_log (
+					id TEXT PRIMARY KEY,
+					timestamp INTEGER NOT NULL,
+					user_id TEXT NOT NULL,
+					user_email TEXT NOT NULL,
+					action TEXT NOT NULL,
+					resource_type TEXT NOT NULL,
+					resource_id TEXT,
+					detail TEXT,
+					ip_address TEXT
+				);
+
+				CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp);
+				CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id);
+				CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
+				CREATE INDEX IF NOT EXISTS idx_audit_log_resource ON audit_log(resource_type, resource_id);
+			`,
+		},
 	}
 
 	for _, m := range migrations {

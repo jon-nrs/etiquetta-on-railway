@@ -1,0 +1,1 @@
+export { PrivacyCenter } from './PrivacyCenter'

@@ -529,6 +529,15 @@
   }
 
   function init() {
+    // Respect DNT / GPC if configured
+    if (CONFIG.respectDNT !== false) {
+      if (navigator.doNotTrack === "1" || navigator.globalPrivacyControl === true) {
+        log("DNT/GPC signal detected, not tracking");
+        window.etiquetta = { track: function(){}, pageview: function(){}, flush: function(){}, getVisitorHash: function(){ return ""; } };
+        return;
+      }
+    }
+
     var consent = window.__ETIQUETTA_CONSENT__;
 
     // If consent system is loaded and analytics is explicitly denied, wait

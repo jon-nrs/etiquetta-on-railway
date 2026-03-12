@@ -37,6 +37,35 @@ type Handlers struct {
 	sseMu      sync.RWMutex
 }
 
+// logAudit records an admin action to the audit log (fire-and-forget)
+func (h *Handlers) logAudit(r *http.Request, action, resourceType, resourceID, detail string) {
+	claims := auth.GetUserFromContext(r.Context())
+	if claims == nil {
+		return
+	}
+
+	clientIP := enrichment.ExtractClientIP(r.RemoteAddr, map[string]string{
+		"X-Forwarded-For": r.Header.Get("X-Forwarded-For"),
+		"X-Real-IP":       r.Header.Get("X-Real-IP"),
+	})
+
+	entry := &database.AuditLogEntry{
+		ID:           generateID(),
+		Timestamp:    time.Now().UnixMilli(),
+		UserID:       claims.UserID,
+		UserEmail:    claims.Email,
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Detail:       detail,
+		IPAddress:    clientIP,
+	}
+
+	if err := h.db.InsertAuditLog(entry); err != nil {
+		fmt.Printf("[audit] Failed to log %s %s: %v\n", action, resourceType, err)
+	}
+}
+
 // Health check
 func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -59,11 +88,12 @@ func (h *Handlers) ServeTrackerScript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Inject configuration (no DNT - we're GDPR compliant by design with no cookies/PII)
-	config := fmt.Sprintf(`window.__ETIQUETTA_CONFIG__={endpoint:"%s",trackPerformance:%t,trackErrors:%t};`,
+	// Inject configuration
+	config := fmt.Sprintf(`window.__ETIQUETTA_CONFIG__={endpoint:"%s",trackPerformance:%t,trackErrors:%t,respectDNT:%t};`,
 		"/i",
 		h.cfg.TrackPerformance && h.licenseManager.HasFeature(licensing.FeaturePerformance),
 		h.cfg.TrackErrors && h.licenseManager.HasFeature(licensing.FeatureErrorTracking),
+		h.cfg.RespectDNT,
 	)
 
 	w.Write([]byte(config))
@@ -72,8 +102,13 @@ func (h *Handlers) ServeTrackerScript(w http.ResponseWriter, r *http.Request) {
 
 // Ingest receives tracking events
 func (h *Handlers) Ingest(w http.ResponseWriter, r *http.Request) {
-	// Note: We don't check DNT since this is a privacy-first analytics solution
-	// that is GDPR compliant by design (no cookies, no PII stored).
+	// Respect DNT (Do Not Track) and GPC (Global Privacy Control) headers
+	if h.cfg.RespectDNT {
+		if r.Header.Get("DNT") == "1" || r.Header.Get("Sec-GPC") == "1" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	}
 
 	// Parse events (NDJSON format - one event per line)
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20)) // 1MB limit
@@ -443,6 +478,7 @@ func (h *Handlers) UploadLicense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logAudit(r, "upload", "license", "", "License uploaded")
 	writeJSON(w, http.StatusOK, h.licenseManager.GetInfo())
 }
 
@@ -452,6 +488,7 @@ func (h *Handlers) RemoveLicense(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.logAudit(r, "remove", "license", "", "License removed")
 	writeJSON(w, http.StatusOK, h.licenseManager.GetInfo())
 }
 
@@ -482,12 +519,15 @@ func (h *Handlers) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tx, _ := h.db.Conn().Begin()
+	changedKeys := make([]string, 0, len(settings))
 	for key, value := range settings {
 		tx.Exec("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)",
 			key, value, time.Now().UnixMilli())
+		changedKeys = append(changedKeys, key)
 	}
 	tx.Commit()
 
+	h.logAudit(r, "update", "settings", "", "Updated keys: "+strings.Join(changedKeys, ", "))
 	w.WriteHeader(http.StatusNoContent)
 }
 
