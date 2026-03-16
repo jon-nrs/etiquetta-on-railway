@@ -32,12 +32,13 @@ To run Etiquetta on Railway:
 4. Choose `GitHub Repository`
 5. Choose the `Railway config` branch of the repo you just created
 6. Open the configuration panel, and [add the variables shown here](https://github.com/caioricciuti/etiquetta?tab=readme-ov-file#configuration)
-7. Add another variable called `ALLOWED_HOSTS`. The value should be your public Railway URL (found in the Settings tab under Public Networking) 
-8. In Settings, add the following:
+7. Add another variable called `ALLOWED_HOSTS`. The value should be your public Railway URL (found in the Settings tab under Public Networking)
+8. Add another variable called `RAILPACK_PACKAGES`, with a value of `bun@latest`
+9. In Settings, add the following:
 	- **Public networking** (optional): Add a custom domain (e.g. analytics.mydomain.com) to obfuscate your Railway app URL in your website source code 
-	- **Builder**: Nixpacks
+	- **Builder**: Railpacks
 	- **Custom Build Command**: make all
 	- **Custom Start Command**: ./bin/etiquetta serve
-9. Close the configuration panel, hit `+ New` and choose `Volume`, attach it to your Etiquetta service
-10. Add `/app/data` as the mount path. This ensures your Etiquetta data is retained if your Railway services crashes or your redeploy it
+10. Close the configuration panel, hit `+ New` and choose `Volume`, attach it to your Etiquetta service
+11. Add `/app/data` as the mount path. This ensures your Etiquetta data is retained if your Railway services crashes or your redeploy it
 10. Hit `Deploy`, and [continue your onboarding from here](https://github.com/caioricciuti/etiquetta?tab=readme-ov-file#tracking-setup).
