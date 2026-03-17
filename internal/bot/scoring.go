@@ -11,6 +11,7 @@ const (
 	CategorySuspicious = "suspicious"
 	CategoryBadBot     = "bad_bot"
 	CategoryGoodBot    = "good_bot"
+	CategoryAutomation = "automation"
 )
 
 // Signal weights for bot scoring
@@ -27,7 +28,9 @@ const (
 	WeightTimezoneMismatch = 10 // Client TZ != IP geo TZ
 	WeightNoPlugins       = 5  // No plugins detected
 	WeightNoLanguages     = 5  // No languages array
-	WeightSuspiciousPath  = 30 // Known attack/exploit path patterns
+	WeightSuspiciousPath   = 30 // Known attack/exploit path patterns
+	WeightCDPDetected      = 25 // ChromeDriver Protocol properties on document
+	WeightDocHiddenAtLoad  = 5  // Document hidden when page loaded (background tab)
 )
 
 // Signal represents a detected bot signal
@@ -47,15 +50,17 @@ type ScoringResult struct {
 
 // ClientSignals contains bot detection signals from the client
 type ClientSignals struct {
-	Webdriver   bool `json:"webdriver"`
-	Phantom     bool `json:"phantom"`
-	Selenium    bool `json:"selenium"`
-	Headless    bool `json:"headless"`
-	ScreenValid bool `json:"screen_valid"`
-	Plugins     int  `json:"plugins"`
-	Languages   int  `json:"languages"`
-	ScreenWidth int  `json:"screen_width"`
-	ScreenHeight int `json:"screen_height"`
+	Webdriver      bool `json:"webdriver"`
+	Phantom        bool `json:"phantom"`
+	Selenium       bool `json:"selenium"`
+	Headless       bool `json:"headless"`
+	ScreenValid    bool `json:"screen_valid"`
+	Plugins        int  `json:"plugins"`
+	Languages      int  `json:"languages"`
+	ScreenWidth    int  `json:"screen_width"`
+	ScreenHeight   int  `json:"screen_height"`
+	CDPDetected    bool `json:"cdp_detected"`
+	DocHiddenAtLoad bool `json:"doc_hidden_at_load"`
 }
 
 // CalculateScore computes the bot score based on various signals
@@ -148,6 +153,18 @@ func CalculateScore(userAgent string, clientSignals *ClientSignals, isDatacenter
 			result.Score += WeightNoLanguages
 			result.Signals = append(result.Signals, Signal{Name: "no_languages", Weight: WeightNoLanguages})
 		}
+
+		// CDP (ChromeDriver Protocol) detected
+		if clientSignals.CDPDetected {
+			result.Score += WeightCDPDetected
+			result.Signals = append(result.Signals, Signal{Name: "cdp_detected", Weight: WeightCDPDetected})
+		}
+
+		// Document hidden at load (AI tools often open background tabs)
+		if clientSignals.DocHiddenAtLoad {
+			result.Score += WeightDocHiddenAtLoad
+			result.Signals = append(result.Signals, Signal{Name: "doc_hidden_at_load", Weight: WeightDocHiddenAtLoad})
+		}
 	}
 
 	// Check for datacenter IP
@@ -172,6 +189,13 @@ func CalculateScore(userAgent string, clientSignals *ClientSignals, isDatacenter
 	// Determine category based on score
 	result.Category = ScoreToCategory(result.Score)
 	result.IsBot = result.Score > 50
+
+	// Override category to "automation" when automation-specific signals are present
+	if result.Score > 50 && clientSignals != nil {
+		if clientSignals.CDPDetected || clientSignals.Webdriver || clientSignals.Selenium {
+			result.Category = CategoryAutomation
+		}
+	}
 
 	return result
 }

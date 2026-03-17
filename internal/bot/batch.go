@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -59,6 +60,8 @@ func (b *BatchAnalyzer) analyze() {
 	count += b.analyzeZeroInteraction(since)
 	count += b.analyzeImpossibleSpeed(since)
 	count += b.analyzePerfectTiming(since)
+	count += b.analyzeAnomalousVitals(since)
+	count += b.analyzeNoInteractionLongSession(since)
 
 	if count > 0 {
 		log.Printf("Bot batch analysis: updated %d sessions", count)
@@ -272,6 +275,149 @@ func (b *BatchAnalyzer) analyzePerfectTiming(since time.Time) int {
 	}
 
 	return count
+}
+
+// analyzeAnomalousVitals detects sessions with extreme web vitals (AI-driven browsers)
+func (b *BatchAnalyzer) analyzeAnomalousVitals(since time.Time) int {
+	rows, err := b.db.Query(`
+		SELECT DISTINCT p.session_id
+		FROM performance p
+		WHERE p.timestamp >= ?
+			AND (p.lcp > 30000 OR p.fcp > 20000)
+			AND COALESCE(p.connection_type, '4g') NOT IN ('2g', 'slow-2g')
+	`, since.UnixMilli())
+	if err != nil {
+		log.Printf("Anomalous vitals analysis error: %v", err)
+		return 0
+	}
+	defer rows.Close()
+
+	var sessionIDs []string
+	for rows.Next() {
+		var sid string
+		rows.Scan(&sid)
+		sessionIDs = append(sessionIDs, sid)
+	}
+
+	count := 0
+	for _, sid := range sessionIDs {
+		var botScore int
+		var botSignals, botCategory string
+		err := b.db.QueryRow(
+			"SELECT bot_score, bot_signals, bot_category FROM events WHERE session_id = ? AND bot_category != 'good_bot' AND bot_signals NOT LIKE '%anomalous_vitals%' LIMIT 1",
+			sid,
+		).Scan(&botScore, &botSignals, &botCategory)
+		if err != nil {
+			continue
+		}
+
+		newScore := botScore + 20
+		if newScore > 100 {
+			newScore = 100
+		}
+		newSignals := appendSignal(botSignals, "anomalous_vitals", 20)
+		newCategory := botCategory
+		if newScore > 50 {
+			newCategory = "bad_bot"
+			// Check if automation signals are present
+			if hasAutomationSignal(botSignals) {
+				newCategory = CategoryAutomation
+			}
+		} else if newScore > 20 {
+			newCategory = "suspicious"
+		}
+
+		result, err := b.db.Exec(
+			"UPDATE events SET bot_score = ?, bot_signals = ?, bot_category = ? WHERE session_id = ? AND bot_category != 'good_bot' AND bot_signals NOT LIKE '%anomalous_vitals%'",
+			newScore, newSignals, newCategory, sid,
+		)
+		if err != nil {
+			continue
+		}
+		affected, _ := result.RowsAffected()
+		count += int(affected)
+
+		// Also update performance table
+		b.db.Exec(
+			"UPDATE performance SET bot_score = ?, bot_category = ? WHERE session_id = ?",
+			newScore, newCategory, sid,
+		)
+	}
+
+	return count
+}
+
+// analyzeNoInteractionLongSession detects sessions with zero interaction but long page views
+func (b *BatchAnalyzer) analyzeNoInteractionLongSession(since time.Time) int {
+	rows, err := b.db.Query(`
+		SELECT session_id FROM events
+		WHERE timestamp >= ?
+		GROUP BY session_id
+		HAVING SUM(has_scroll) = 0 AND SUM(has_mouse_move) = 0 AND SUM(has_click) = 0
+			AND SUM(has_touch) = 0 AND MAX(page_duration) > 10000 AND COUNT(*) >= 2
+	`, since.UnixMilli())
+	if err != nil {
+		log.Printf("No interaction long session analysis error: %v", err)
+		return 0
+	}
+	defer rows.Close()
+
+	var sessionIDs []string
+	for rows.Next() {
+		var sid string
+		rows.Scan(&sid)
+		sessionIDs = append(sessionIDs, sid)
+	}
+
+	count := 0
+	for _, sid := range sessionIDs {
+		var botScore int
+		var botSignals, botCategory string
+		err := b.db.QueryRow(
+			"SELECT bot_score, bot_signals, bot_category FROM events WHERE session_id = ? AND bot_category != 'good_bot' AND bot_signals NOT LIKE '%no_interaction_long_session%' LIMIT 1",
+			sid,
+		).Scan(&botScore, &botSignals, &botCategory)
+		if err != nil {
+			continue
+		}
+
+		newScore := botScore + 15
+		if newScore > 100 {
+			newScore = 100
+		}
+		newSignals := appendSignal(botSignals, "no_interaction_long_session", 15)
+		newCategory := botCategory
+		if newScore > 50 {
+			newCategory = "bad_bot"
+			if hasAutomationSignal(botSignals) {
+				newCategory = CategoryAutomation
+			}
+		} else if newScore > 20 {
+			newCategory = "suspicious"
+		}
+
+		result, err := b.db.Exec(
+			"UPDATE events SET bot_score = ?, bot_signals = ?, bot_category = ? WHERE session_id = ? AND bot_category != 'good_bot' AND bot_signals NOT LIKE '%no_interaction_long_session%'",
+			newScore, newSignals, newCategory, sid,
+		)
+		if err != nil {
+			continue
+		}
+		affected, _ := result.RowsAffected()
+		count += int(affected)
+	}
+
+	return count
+}
+
+// hasAutomationSignal checks if bot signals JSON contains automation-specific signals
+func hasAutomationSignal(signals string) bool {
+	for _, name := range []string{"cdp_detected", "webdriver", "selenium"} {
+		if strings.Contains(signals, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // MaterializeSessions creates/updates the visitor_sessions table.

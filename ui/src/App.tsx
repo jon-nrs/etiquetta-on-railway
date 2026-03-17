@@ -14,6 +14,7 @@ import {
   GeoIPSettings,
   AccountSettings,
   UsersSettings,
+  TrackingSettings,
 } from './pages/settings'
 import { ConsentDashboard, ConsentConfig } from './pages/consent'
 import { PrivacyCenter } from './pages/privacy'
@@ -45,6 +46,7 @@ import {
   User,
   Database,
   Fingerprint,
+  Activity,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -247,6 +249,7 @@ function AppSidebar() {
 
   const settingsItems = [
     { path: '/settings/domains', name: 'Domains', icon: Globe },
+    { path: '/settings/tracking', name: 'Tracking', icon: Activity, adminOnly: true },
     { path: '/settings/email', name: 'Email', icon: Mail, adminOnly: true },
     { path: '/settings/geoip', name: 'GeoIP', icon: MapPin, adminOnly: true },
     { path: '/settings/account', name: 'Account', icon: User },
@@ -392,6 +395,7 @@ function AppLayout() {
               {/* Settings routes */}
               <Route path="/settings" element={<Navigate to="/settings/domains" replace />} />
               <Route path="/settings/domains" element={<DomainsSettings />} />
+              <Route path="/settings/tracking" element={<TrackingSettings />} />
               <Route path="/settings/email" element={<EmailSettings />} />
               <Route path="/settings/geoip" element={<GeoIPSettings />} />
               <Route path="/settings/account" element={<AccountSettings />} />

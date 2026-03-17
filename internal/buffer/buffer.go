@@ -287,7 +287,7 @@ func (bm *BufferManager) tickerLoop() {
 
 // loadParquet loads a parquet file into DuckDB.
 func (bm *BufferManager) loadParquet(job FlushJob) error {
-	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM read_parquet('%s')", job.Table, job.FilePath)
+	query := fmt.Sprintf("INSERT INTO %s BY NAME SELECT * FROM read_parquet('%s')", job.Table, job.FilePath)
 	_, err := bm.db.Exec(query)
 	return err
 }

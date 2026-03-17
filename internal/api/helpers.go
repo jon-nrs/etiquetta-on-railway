@@ -57,6 +57,8 @@ func getBotFilterCondition(filter string) string {
 		return "bot_category = 'bad_bot'"
 	case "suspicious":
 		return "bot_category = 'suspicious'"
+	case "automation":
+		return "bot_category = 'automation'"
 	case "bots":
 		return "is_bot = 1"
 	default:

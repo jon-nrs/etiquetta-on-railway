@@ -76,6 +76,8 @@ type Performance struct {
 	DeviceType     *string   `json:"device_type,omitempty"`
 	ConnectionType *string   `json:"connection_type,omitempty"`
 	GeoCountry     *string   `json:"geo_country,omitempty"`
+	BotScore       int       `json:"bot_score"`
+	BotCategory    string    `json:"bot_category"`
 }
 
 // Error represents a JS error
