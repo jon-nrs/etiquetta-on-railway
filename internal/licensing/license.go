@@ -63,12 +63,12 @@ func DefaultLimits(tier string) map[string]int {
 	case TierPro:
 		return map[string]int{
 			"max_users":          10,
-			"max_retention_days": 90,
+			"max_retention_days": -1, // unlimited — user configurable
 		}
 	default: // community
 		return map[string]int{
 			"max_users":          3,
-			"max_retention_days": 7,
+			"max_retention_days": 180,
 		}
 	}
 }

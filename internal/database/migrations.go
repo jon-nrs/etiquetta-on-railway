@@ -460,6 +460,15 @@ func (db *DB) Migrate() error {
 				CREATE INDEX IF NOT EXISTS idx_perf_bot_category ON performance(bot_category);
 			`,
 		},
+		{
+			version: 16,
+			sql: `
+				-- Seed default data retention setting
+				INSERT INTO settings (key, value, updated_at)
+				VALUES ('data_retention_days', '180', epoch_ms(now()))
+				ON CONFLICT (key) DO NOTHING;
+			`,
+		},
 	}
 
 	for _, m := range migrations {

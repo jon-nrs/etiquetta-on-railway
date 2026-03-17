@@ -132,6 +132,12 @@ export interface BotData {
   top_bots: BotDetail[]
 }
 
+// Calendar heatmap
+export interface CalendarHeatmapPoint {
+  date: string
+  sessions: number
+}
+
 // Ad Fraud types
 export interface FraudSummary {
   total_clicks: number
@@ -194,7 +200,7 @@ export const defaultLicense: License = {
   tier: 'community',
   state: 'missing',
   features: {},
-  limits: { max_users: 3, max_retention_days: 7 },
+  limits: { max_users: 3, max_retention_days: 180 },
   expires_at: null,
   licensee: '',
 }

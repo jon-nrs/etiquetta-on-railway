@@ -165,11 +165,11 @@ func runServe(cmd *cobra.Command, args []string) {
 
 	// Start data retention cleanup goroutine
 	go func() {
-		runDataRetention(db, licenseManager)
+		runDataRetention(db, licenseManager, settingsSvc)
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
-			runDataRetention(db, licenseManager)
+			runDataRetention(db, licenseManager, settingsSvc)
 		}
 	}()
 
@@ -222,10 +222,24 @@ func runServe(cmd *cobra.Command, args []string) {
 	}
 }
 
-func runDataRetention(db *database.DB, lm *licensing.Manager) {
-	retentionDays := lm.GetLimit("max_retention_days")
-	if retentionDays == -1 {
-		retentionDays = 365 * 10 // 10 years for unlimited
+func runDataRetention(db *database.DB, lm *licensing.Manager, settingsSvc *settings.Service) {
+	tier := lm.GetTier()
+	userChoice := settingsSvc.GetInt("data_retention_days", 180)
+
+	var retentionDays int
+	if tier == licensing.TierPro || tier == licensing.TierEnterprise {
+		// Pro/Enterprise: honor user choice with no clamp
+		if userChoice == -1 {
+			retentionDays = 365 * 10
+		} else {
+			retentionDays = userChoice
+		}
+	} else {
+		// Community: clamp to 180
+		retentionDays = userChoice
+		if retentionDays > 180 || retentionDays == -1 {
+			retentionDays = 180
+		}
 	}
 
 	if err := db.CleanupOldData(retentionDays); err != nil {
