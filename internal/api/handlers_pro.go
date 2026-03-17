@@ -18,7 +18,7 @@ func (h *Handlers) GetStatsVitals(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	f := parseStatsFilter(r)
 
-	where := "timestamp >= ? AND timestamp <= ?"
+	where := "timestamp >= ? AND timestamp <= ? AND bot_category = 'human'"
 	args := []interface{}{f.startMs, f.endMs}
 	if f.domain != "" {
 		where += " AND domain = ?"

@@ -68,6 +68,16 @@ func (h *Handlers) logAudit(r *http.Request, action, resourceType, resourceID, d
 	}
 }
 
+// getTrackingBool reads a boolean tracking setting from the DB, falling back to the config value.
+func (h *Handlers) getTrackingBool(key string, fallback bool) bool {
+	var val string
+	err := h.db.Conn().QueryRow("SELECT value FROM settings WHERE key = ?", key).Scan(&val)
+	if err != nil {
+		return fallback
+	}
+	return val == "true" || val == "1"
+}
+
 // Health check
 func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -90,12 +100,12 @@ func (h *Handlers) ServeTrackerScript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Inject configuration
+	// Inject configuration (read from DB settings, falling back to config file)
 	config := fmt.Sprintf(`window.__ETIQUETTA_CONFIG__={endpoint:"%s",trackPerformance:%t,trackErrors:%t,respectDNT:%t};`,
 		"/i",
-		h.cfg.TrackPerformance && h.licenseManager.HasFeature(licensing.FeaturePerformance),
-		h.cfg.TrackErrors && h.licenseManager.HasFeature(licensing.FeatureErrorTracking),
-		h.cfg.RespectDNT,
+		h.getTrackingBool("track_performance", h.cfg.TrackPerformance) && h.licenseManager.HasFeature(licensing.FeaturePerformance),
+		h.getTrackingBool("track_errors", h.cfg.TrackErrors) && h.licenseManager.HasFeature(licensing.FeatureErrorTracking),
+		h.getTrackingBool("respect_dnt", h.cfg.RespectDNT),
 	)
 
 	w.Write([]byte(config))
@@ -105,7 +115,7 @@ func (h *Handlers) ServeTrackerScript(w http.ResponseWriter, r *http.Request) {
 // Ingest receives tracking events
 func (h *Handlers) Ingest(w http.ResponseWriter, r *http.Request) {
 	// Respect DNT (Do Not Track) and GPC (Global Privacy Control) headers
-	if h.cfg.RespectDNT {
+	if h.getTrackingBool("respect_dnt", h.cfg.RespectDNT) {
 		if r.Header.Get("DNT") == "1" || r.Header.Get("Sec-GPC") == "1" {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -205,7 +215,7 @@ func (h *Handlers) Ingest(w http.ResponseWriter, r *http.Request) {
 			if !h.licenseManager.HasFeature(licensing.FeaturePerformance) {
 				continue
 			}
-			perf := h.parsePerformance(raw, sessionID, enriched)
+			perf := h.parsePerformance(raw, sessionID, enriched, enriched.BotScore, enriched.BotCategory)
 			if perf != nil {
 				perfs = append(perfs, perf)
 			}
@@ -259,15 +269,17 @@ func (h *Handlers) parseEvent(raw map[string]interface{}, sessionID string, enri
 	var clientSignals *bot.ClientSignals
 	if botSignalsRaw, ok := raw["bot_signals"].(map[string]interface{}); ok {
 		clientSignals = &bot.ClientSignals{
-			Webdriver:    getBoolFromFloat(botSignalsRaw, "webdriver"),
-			Phantom:      getBoolFromFloat(botSignalsRaw, "phantom"),
-			Selenium:     getBoolFromFloat(botSignalsRaw, "selenium"),
-			Headless:     getBoolFromFloat(botSignalsRaw, "headless"),
-			ScreenValid:  getBoolFromFloat(botSignalsRaw, "screen_valid"),
-			Plugins:      int(getFloatOr(botSignalsRaw, "plugins", 0)),
-			Languages:    int(getFloatOr(botSignalsRaw, "languages", 0)),
-			ScreenWidth:  int(getFloatOr(botSignalsRaw, "screen_width", 0)),
-			ScreenHeight: int(getFloatOr(botSignalsRaw, "screen_height", 0)),
+			Webdriver:       getBoolFromFloat(botSignalsRaw, "webdriver"),
+			Phantom:         getBoolFromFloat(botSignalsRaw, "phantom"),
+			Selenium:        getBoolFromFloat(botSignalsRaw, "selenium"),
+			Headless:        getBoolFromFloat(botSignalsRaw, "headless"),
+			ScreenValid:     getBoolFromFloat(botSignalsRaw, "screen_valid"),
+			Plugins:         int(getFloatOr(botSignalsRaw, "plugins", 0)),
+			Languages:       int(getFloatOr(botSignalsRaw, "languages", 0)),
+			ScreenWidth:     int(getFloatOr(botSignalsRaw, "screen_width", 0)),
+			ScreenHeight:    int(getFloatOr(botSignalsRaw, "screen_height", 0)),
+			CDPDetected:     getBoolFromFloat(botSignalsRaw, "cdp_detected"),
+			DocHiddenAtLoad: getBoolFromFloat(botSignalsRaw, "doc_hidden_at_load"),
 		}
 	}
 
@@ -387,9 +399,13 @@ func (h *Handlers) parseEvent(raw map[string]interface{}, sessionID string, enri
 	return event
 }
 
-func (h *Handlers) parsePerformance(raw map[string]interface{}, sessionID string, enriched *enrichment.EnrichmentResult) *database.Performance {
+func (h *Handlers) parsePerformance(raw map[string]interface{}, sessionID string, enriched *enrichment.EnrichmentResult, botScore int, botCategory string) *database.Performance {
 	urlStr, _ := raw["url"].(string)
 	parsedURL, _ := url.Parse(urlStr)
+
+	if botCategory == "" {
+		botCategory = "human"
+	}
 
 	perf := &database.Performance{
 		ID:          generateID(),
@@ -401,6 +417,8 @@ func (h *Handlers) parsePerformance(raw map[string]interface{}, sessionID string
 		Path:        parsedURL.Path,
 		DeviceType:  &enriched.DeviceType,
 		GeoCountry:  &enriched.GeoCountry,
+		BotScore:    botScore,
+		BotCategory: botCategory,
 	}
 
 	if v, ok := raw["lcp"].(float64); ok {

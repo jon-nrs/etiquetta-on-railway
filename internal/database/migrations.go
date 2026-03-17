@@ -450,6 +450,16 @@ func (db *DB) Migrate() error {
 				CREATE INDEX IF NOT EXISTS idx_audit_log_resource ON audit_log(resource_type, resource_id);
 			`,
 		},
+		{
+			version: 15,
+			sql: `
+				-- Add bot detection columns to performance table
+				ALTER TABLE performance ADD COLUMN bot_score INTEGER DEFAULT 0;
+				ALTER TABLE performance ADD COLUMN bot_category VARCHAR DEFAULT 'human';
+
+				CREATE INDEX IF NOT EXISTS idx_perf_bot_category ON performance(bot_category);
+			`,
+		},
 	}
 
 	for _, m := range migrations {

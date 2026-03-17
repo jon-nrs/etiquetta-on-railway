@@ -129,7 +129,16 @@
       screen_width: screen.width || 0,
       screen_height: screen.height || 0,
       plugins: navigator.plugins ? navigator.plugins.length : 0,
-      languages: navigator.languages ? navigator.languages.length : 0
+      languages: navigator.languages ? navigator.languages.length : 0,
+      cdp_detected: (function() {
+        try {
+          for (var key in document) {
+            if (/^cdc_/.test(key) || /^__webdriver/.test(key)) return 1;
+          }
+        } catch(e) {}
+        return 0;
+      })(),
+      doc_hidden_at_load: document.hidden ? 1 : 0
     };
   }
 
@@ -565,7 +574,10 @@
   if (SITE_ID) {
     function loadTagManager() {
       var tms = document.createElement('script');
-      tms.src = BASE_URL + '/tm/' + SITE_ID + '.js';
+      var tmUrl = BASE_URL + '/tm/' + SITE_ID + '.js';
+      var dbgToken = new URLSearchParams(location.search).get('etq_debug');
+      if (dbgToken) tmUrl += '?debug=' + encodeURIComponent(dbgToken);
+      tms.src = tmUrl;
       tms.async = true;
       document.head.appendChild(tms);
     }

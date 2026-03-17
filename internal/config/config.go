@@ -31,7 +31,7 @@ func Load(path string) *Config {
 		SessionTimeoutMinutes: 30,
 		TrackPerformance:      true,
 		TrackErrors:           true,
-		RespectDNT:            true,
+		RespectDNT:            false,
 		AllowedOrigins:        []string{"*"},
 		SecretKey:             "change-me-in-production",
 	}

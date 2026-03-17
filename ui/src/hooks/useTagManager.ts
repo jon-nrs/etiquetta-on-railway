@@ -50,6 +50,24 @@ export function useDeleteContainer() {
   })
 }
 
+export function useRenameContainer() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      fetchAPI(`/api/tagmanager/containers/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ['tm', 'containers'] })
+      queryClient.invalidateQueries({ queryKey: ['tm', 'containers', vars.id] })
+      toast.success('Container renamed')
+    },
+    onError: (err) => toast.error('Failed to rename container', { description: err.message }),
+  })
+}
+
 export function usePublishContainer(containerId: string | undefined) {
   const queryClient = useQueryClient()
   return useMutation({
