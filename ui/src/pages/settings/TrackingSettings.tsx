@@ -7,12 +7,15 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Activity, Loader2 } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Activity, Database, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useLicense } from '@/hooks/useLicenseQuery'
 import { SettingsLayout } from './SettingsLayout'
 
 export function TrackingSettings() {
   const { isAdmin } = useAuth()
+  const { license } = useLicense()
   const [settings, setSettings] = useState<Record<string, string> | null>(null)
   const [edited, setEdited] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
@@ -151,6 +154,60 @@ export function TrackingSettings() {
               Save Settings
             </Button>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Database className="h-5 w-5" />
+            Data Retention
+          </CardTitle>
+          <CardDescription>
+            Configure how long analytics data is kept before automatic deletion.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {(() => {
+            const isPro = license.tier === 'pro' || license.tier === 'enterprise'
+            const currentValue = getNumber('data_retention_days', 180)
+
+            return (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Delete data older than</Label>
+                    <p className="text-xs text-muted-foreground">
+                      {isPro
+                        ? 'Choose how long to keep analytics data'
+                        : 'Community plan: up to 180 days'}
+                    </p>
+                  </div>
+                  <Select
+                    value={currentValue}
+                    onValueChange={(value) => setNumber('data_retention_days', value)}
+                  >
+                    <SelectTrigger className="w-[160px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="90">90 days</SelectItem>
+                      <SelectItem value="180">180 days</SelectItem>
+                      {isPro && <SelectItem value="365">1 year</SelectItem>}
+                      {isPro && <SelectItem value="-1">Forever</SelectItem>}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex justify-end pt-4 border-t">
+                  <Button onClick={handleSave} disabled={saving || !hasChanges}>
+                    {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Save Settings
+                  </Button>
+                </div>
+              </>
+            )
+          })()}
         </CardContent>
       </Card>
     </SettingsLayout>
