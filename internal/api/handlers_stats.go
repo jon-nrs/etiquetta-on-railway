@@ -539,6 +539,47 @@ func (h *Handlers) GetStatsOutbound(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// GetStatsCalendarHeatmap returns daily session counts for calendar heatmap overlay
+func (h *Handlers) GetStatsCalendarHeatmap(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	startMs, endMs := getDateRangeParams(r, 60)
+	domain := getDomainParam(r)
+
+	query := `
+		SELECT
+			strftime('%Y-%m-%d', to_timestamp(timestamp / 1000)::TIMESTAMP) as date,
+			COUNT(DISTINCT session_id) as sessions
+		FROM events
+		WHERE timestamp >= ? AND timestamp <= ? AND is_bot = 0`
+	args := []interface{}{startMs, endMs}
+
+	if domain != "" {
+		query += " AND domain = ?"
+		args = append(args, domain)
+	}
+	query += " GROUP BY date ORDER BY date"
+
+	rows, err := h.db.Conn().QueryContext(ctx, query, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	result := make([]map[string]interface{}, 0)
+	for rows.Next() {
+		var date string
+		var sessions int64
+		rows.Scan(&date, &sessions)
+		result = append(result, map[string]interface{}{
+			"date":     date,
+			"sessions": sessions,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
 // GetStatsBots returns bot traffic breakdown (intentionally shows ALL traffic including bots)
 func (h *Handlers) GetStatsBots(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

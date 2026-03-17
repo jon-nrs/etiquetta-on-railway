@@ -174,7 +174,8 @@ func NewRouter(db *database.DB, enricher *enrichment.Enricher, licenseManager *l
 			r.Get("/stats/campaigns", h.GetStatsCampaigns)
 			r.Get("/stats/events", h.GetStatsCustomEvents)
 			r.Get("/stats/outbound", h.GetStatsOutbound)
-			r.Get("/stats/bots", h.GetStatsBots) // Bot traffic breakdown
+			r.Get("/stats/bots", h.GetStatsBots)                       // Bot traffic breakdown
+			r.Get("/stats/calendar-heatmap", h.GetStatsCalendarHeatmap) // Calendar heatmap data
 
 			// Domain management
 			r.Get("/domains", h.ListDomains)

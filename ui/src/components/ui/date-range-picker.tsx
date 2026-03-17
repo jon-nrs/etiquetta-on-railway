@@ -3,16 +3,17 @@
 import * as React from "react"
 import { format, subDays, startOfMonth, endOfMonth, startOfDay, endOfDay, subMonths } from "date-fns"
 import { CalendarIcon, ChevronDown } from "lucide-react"
-import type { DateRange } from "react-day-picker"
+import type { DateRange, DayButton } from "react-day-picker"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Calendar } from "@/components/ui/calendar"
+import { Calendar, CalendarDayButton } from "@/components/ui/calendar"
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { useCalendarHeatmap } from "@/hooks/useCalendarHeatmap"
 
 const presets = [
   {
@@ -84,6 +85,11 @@ const presets = [
   },
 ]
 
+function formatCompact(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`
+  return String(n)
+}
+
 interface DateRangePickerProps {
   dateRange: DateRange | undefined
   onDateRangeChange: (range: DateRange | undefined) => void
@@ -102,6 +108,33 @@ export function DateRangePicker({
   align = "end",
 }: DateRangePickerProps) {
   const [isOpen, setIsOpen] = React.useState(false)
+  const [displayedMonth, setDisplayedMonth] = React.useState(
+    () => dateRange?.from ? subMonths(dateRange.from, 0) : subMonths(new Date(), 1)
+  )
+
+  // Fetch heatmap data for displayed months
+  const { data: heatmapData } = useCalendarHeatmap(displayedMonth, isOpen)
+
+  // Build lookup map and compute max for color scaling
+  const { heatmapMap, maxSessions } = React.useMemo(() => {
+    const map = new Map<string, number>()
+    let max = 0
+    if (heatmapData) {
+      for (const point of heatmapData) {
+        map.set(point.date, point.sessions)
+        if (point.sessions > max) max = point.sessions
+      }
+    }
+    return { heatmapMap: map, maxSessions: max }
+  }, [heatmapData])
+
+  // Reset displayed month when popover opens
+  const handleOpenChange = (open: boolean) => {
+    if (open) {
+      setDisplayedMonth(dateRange?.from ? subMonths(dateRange.from, 0) : subMonths(new Date(), 1))
+    }
+    setIsOpen(open)
+  }
 
   const handlePresetSelect = (preset: typeof presets[number]) => {
     onPresetChange?.(preset.value)
@@ -143,8 +176,37 @@ export function DateRangePicker({
     return `${format(dateRange.from, "MMM d, yyyy")} - ${format(dateRange.to, "MMM d, yyyy")}`
   }
 
+  // Custom DayButton with heatmap overlay
+  const HeatmapDayButton = React.useCallback(
+    (props: React.ComponentProps<typeof DayButton>) => {
+      const { day, modifiers, ...rest } = props
+      const dateStr = format(day.date, "yyyy-MM-dd")
+      const sessions = heatmapMap.get(dateStr)
+      const isOutside = modifiers.outside
+      const isSelected = modifiers.selected || modifiers.range_start || modifiers.range_end || modifiers.range_middle
+
+      const showHeatmap = !isOutside && sessions && sessions > 0 && !isSelected && maxSessions > 0
+      const opacity = showHeatmap ? 0.08 + (sessions / maxSessions) * 0.27 : 0
+
+      return (
+        <CalendarDayButton
+          day={day}
+          modifiers={modifiers}
+          style={showHeatmap ? { backgroundColor: `rgba(34, 197, 94, ${opacity})` } : undefined}
+          {...rest}
+        >
+          {props.children}
+          {!isOutside && sessions && sessions > 0 ? (
+            <span>{formatCompact(sessions)}</span>
+          ) : null}
+        </CalendarDayButton>
+      )
+    },
+    [heatmapMap, maxSessions]
+  )
+
   return (
-    <Popover open={isOpen} onOpenChange={setIsOpen}>
+    <Popover open={isOpen} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -198,8 +260,12 @@ export function DateRangePicker({
               selected={dateRange}
               onSelect={handleCalendarSelect}
               numberOfMonths={2}
-              defaultMonth={dateRange?.from ? subMonths(dateRange.from, 0) : subMonths(new Date(), 1)}
+              month={displayedMonth}
+              onMonthChange={setDisplayedMonth}
               disabled={(date) => date > new Date()}
+              components={{
+                DayButton: HeatmapDayButton,
+              }}
             />
           </div>
         </div>
