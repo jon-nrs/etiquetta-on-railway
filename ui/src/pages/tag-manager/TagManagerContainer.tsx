@@ -1,14 +1,17 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useContainer, useExportContainer, useImportContainer } from '@/hooks/useTagManager'
+import { useContainer, useExportContainer, useImportContainer, useDeleteContainer, useRenameContainer } from '@/hooks/useTagManager'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Input } from '@/components/ui/input'
 import { TagList } from './components/TagList'
 import { TriggerList } from './components/TriggerList'
 import { VariableList } from './components/VariableList'
 import { PrivacyAudit } from './components/PrivacyAudit'
 import { PublishBar } from './components/PublishBar'
-import { ArrowLeft, Loader2, Code, Zap, Variable, ShieldCheck, Download, Upload } from 'lucide-react'
+import { ArrowLeft, Loader2, Code, Zap, Variable, ShieldCheck, Download, Upload, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
 
 export function TagManagerContainer() {
   const { containerId } = useParams<{ containerId: string }>()
@@ -16,7 +19,12 @@ export function TagManagerContainer() {
   const { data: container, isLoading, error } = useContainer(containerId ?? '')
   const exportContainer = useExportContainer(containerId)
   const importContainer = useImportContainer(containerId)
+  const deleteContainer = useDeleteContainer()
+  const renameContainer = useRenameContainer()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [renameOpen, setRenameOpen] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [newName, setNewName] = useState('')
 
   if (!containerId) {
     navigate('/tag-manager')
@@ -110,6 +118,27 @@ export function TagManagerContainer() {
               )}
               Export
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => { setNewName(container.name); setRenameOpen(true) }}>
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Rename
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => setDeleteOpen(true)}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete container
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -150,6 +179,64 @@ export function TagManagerContainer() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename container</DialogTitle>
+            <DialogDescription>Enter a new name for this container.</DialogDescription>
+          </DialogHeader>
+          <Input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="Container name"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newName.trim()) {
+                renameContainer.mutate({ id: containerId, name: newName.trim() }, {
+                  onSuccess: () => setRenameOpen(false),
+                })
+              }
+            }}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameOpen(false)}>Cancel</Button>
+            <Button
+              onClick={() => renameContainer.mutate({ id: containerId, name: newName.trim() }, {
+                onSuccess: () => setRenameOpen(false),
+              })}
+              disabled={!newName.trim() || renameContainer.isPending}
+            >
+              {renameContainer.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete container</DialogTitle>
+            <DialogDescription>
+              This will permanently delete &quot;{container.name}&quot; and all its tags, triggers, and variables.
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteContainer.mutate(containerId, {
+                onSuccess: () => navigate('/tag-manager'),
+              })}
+              disabled={deleteContainer.isPending}
+            >
+              {deleteContainer.isPending ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : null}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

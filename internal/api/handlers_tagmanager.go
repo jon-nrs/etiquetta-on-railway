@@ -1431,38 +1431,24 @@ func buildContainerSnapshot(h *Handlers, containerID string) (map[string]interfa
 }
 
 // generateContainerJS creates a self-executing JS string from a snapshot JSON.
-// If debug is true, it wraps the container with a debug overlay panel.
+// If debug is true, it includes a full debug console with timeline, tag summary,
+// variable inspector, and data layer viewer.
 func generateContainerJS(snapshotJSON string, debug bool) string {
+	dbg := func(line string) string {
+		if debug {
+			return line
+		}
+		return ""
+	}
 	debugPrefix := ""
+	debugInit := ""
 	debugSuffix := ""
-	logFn := ""
-
 	if debug {
-		logFn = `var _dbg=[];function _log(type,msg,data){_dbg.push({t:Date.now(),type:type,msg:msg,data:data});_renderPanel();}
-`
-		debugSuffix = `
-function _renderPanel(){
-var p=document.getElementById("__etq_debug");
-if(!p){p=document.createElement("div");p.id="__etq_debug";p.style.cssText="position:fixed;bottom:0;right:0;width:420px;max-height:50vh;overflow-y:auto;background:#1a1a2e;color:#e0e0e0;font:12px/1.5 monospace;z-index:2147483647;border-top:2px solid #6c63ff;border-left:2px solid #6c63ff;padding:0;";
-var hdr=document.createElement("div");hdr.style.cssText="background:#6c63ff;color:#fff;padding:6px 12px;font-weight:bold;cursor:pointer;display:flex;justify-content:space-between;";hdr.innerHTML="Etiquetta Debug <span style='font-weight:normal'>DRAFT</span>";
-var body=document.createElement("div");body.id="__etq_debug_body";body.style.cssText="padding:8px 12px;";
-hdr.onclick=function(){body.style.display=body.style.display==="none"?"block":"none";};
-p.appendChild(hdr);p.appendChild(body);document.body.appendChild(p);}
-var body=document.getElementById("__etq_debug_body");var html="";
-for(var i=_dbg.length-1;i>=0;i--){var e=_dbg[i];var color=e.type==="fire"?"#4caf50":e.type==="block"?"#f44336":e.type==="condition"?"#ff9800":"#90caf9";
-html+="<div style='border-bottom:1px solid #333;padding:4px 0;'><span style='color:"+color+";font-weight:bold;'>["+e.type.toUpperCase()+"]</span> "+e.msg;
-if(e.data){html+=" <span style='color:#999;'>"+JSON.stringify(e.data)+"</span>";}html+="</div>";}
-body.innerHTML=html||"<div style='color:#999;'>Waiting for events...</div>";
-}
-`
 		debugPrefix = "/* ETIQUETTA DEBUG/PREVIEW MODE */\n"
+		debugInit = generateDebugJS()
+		debugSuffix = `_renderConsole();`
 	}
 
-	// The core JS with features:
-	// - Exception triggers (tag.exception_trigger_ids)
-	// - Trigger conditions (trigger.config.conditions with operators)
-	// - Variable interpolation ({{Variable Name}} in tag configs)
-	// - Debug logging (when debug=true)
 	return fmt.Sprintf(`%s(function(){
 "use strict";
 var C=%s;
@@ -1580,38 +1566,190 @@ if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded"
 %s})();`,
 		debugPrefix,
 		snapshotJSON,
-		logFn,
-		// fireTag consent block log
-		dbgLog(debug, `_log("block","Tag blocked by consent: "+tag.name,{category:tag.consent_category});`),
-		// fireTag fired log
-		dbgLog(debug, `_log("fire","Tag fired: "+tag.name,{type:tag.tag_type});`),
-		// condition eval log
-		dbgLog(debug, `_log("condition","Condition: "+cond.variable+" "+cond.operator+" "+cond.value+" = "+result,{actual:val});`),
-		// exception blocked log
-		dbgLog(debug, `_log("block","Exception trigger blocked tag: "+tag.name,{trigger:exceptionTriggers[i].name});`),
-		// immediate fire log
-		dbgLog(debug, `_log("fire","Immediate fire: "+tag.name,{triggers:firingTriggers.length,exceptions:exceptionTriggers.length});`),
-		// click fire log
-		dbgLog(debug, `_log("fire","Click fire: "+tag.name);`),
-		// custom event fire log
-		dbgLog(debug, `_log("fire","Custom event fire: "+tag.name,{event:cfg.event_name});`),
-		// scroll fire log
-		dbgLog(debug, `_log("fire","Scroll depth fire: "+tag.name,{pct:pct});`),
-		// timer fire log
-		dbgLog(debug, `_log("fire","Timer fire: "+tag.name,{count:count});`),
-		// history fire log
-		dbgLog(debug, `_log("fire","History change fire: "+tag.name);`),
-		// form fire log
-		dbgLog(debug, `_log("fire","Form submit fire: "+tag.name);`),
+		debugInit,
+		// fireTag consent block
+		dbg(`_recordTag(_curEvt,tag,"blocked_consent",tag.consent_category);`),
+		// fireTag fired
+		dbg(`_recordTag(_curEvt,tag,"fired","");`),
+		// condition eval
+		dbg(`_recordCondition(_curEvt,cond,val,result);`),
+		// exception blocked
+		dbg(`_recordTag(_curEvt,tag,"blocked_exception",exceptionTriggers[i].name);`),
+		// immediate fire
+		dbg(`_curEvt=_beginEvent("page_load","Page Load");`),
+		// click fire
+		dbg(`_curEvt=_beginEvent("click","Click"+(tr.config.selector?" \u2014 "+tr.config.selector:""));`),
+		// custom event fire
+		dbg(`_curEvt=_beginEvent("custom_event","Event: "+cfg.event_name);`),
+		// scroll fire
+		dbg(`_curEvt=_beginEvent("scroll_depth","Scroll "+pct+"%%");`),
+		// timer fire
+		dbg(`_curEvt=_beginEvent("timer","Timer #"+count);`),
+		// history fire
+		dbg(`_curEvt=_beginEvent("history_change","Navigation");`),
+		// form fire
+		dbg(`_curEvt=_beginEvent("form_submit","Form Submit"+(tr.config.selector?" \u2014 "+tr.config.selector:""));`),
 		// debug panel suffix
 		debugSuffix,
 	)
 }
 
-// dbgLog returns the log line if debug is true, empty string otherwise
-func dbgLog(debug bool, line string) string {
-	if debug {
-		return line
-	}
-	return ""
+// generateDebugJS returns the debug console infrastructure JS injected into the container.
+func generateDebugJS() string {
+	return `var _events=[],_tagStats={},_curEvt=null,_eid=0,_startTs=Date.now();
+function _snapVars(){var r={};C.variables.forEach(function(v){try{r[v.name]=String(resolveVar(v));}catch(e){r[v.name]="[error]";}});return r;}
+function _beginEvent(type,label){var ev={id:++_eid,ts:Date.now(),type:type,label:label,tags:[],triggers:[],conditions:[],variables:_snapVars()};_events.push(ev);_renderConsole();return ev;}
+function _recordTag(ev,tag,status,reason){if(!ev)return;ev.tags.push({name:tag.name,type:tag.tag_type,status:status,reason:reason});if(!_tagStats[tag.name])_tagStats[tag.name]={fired:0,blocked:0,errors:0,last:""};if(status==="fired"){_tagStats[tag.name].fired++;_tagStats[tag.name].last="fired";}else{_tagStats[tag.name].blocked++;_tagStats[tag.name].last=status;}_renderConsole();}
+function _recordCondition(ev,cond,actual,passed){if(!ev)return;ev.conditions.push({variable:cond.variable,operator:cond.operator,expected:cond.value,actual:actual,passed:passed});_renderConsole();}
+var _panel=null,_body=null,_badge=null,_activeTab="timeline",_collapsed=false,_panelH=320;
+function _el(tag,css,html){var e=document.createElement(tag);if(css)e.style.cssText=css;if(html)e.innerHTML=html;return e;}
+function _renderConsole(){
+if(!document.body)return;
+if(!_panel){_buildPanel();}
+if(_collapsed){_badge.textContent=_events.length+" events";return;}
+_body.innerHTML="";
+if(_activeTab==="timeline")_renderTimeline();
+else if(_activeTab==="tags")_renderTags();
+else if(_activeTab==="variables")_renderVariables();
+else if(_activeTab==="datalayer")_renderDataLayer();
+else _renderSummary();
+_updateTabBar();
+}
+function _buildPanel(){
+_panel=_el("div","position:fixed;bottom:0;left:0;right:0;height:"+_panelH+"px;background:#111827;color:#d1d5db;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;z-index:2147483647;border-top:2px solid #6366f1;display:flex;flex-direction:column;");
+var drag=_el("div","height:6px;cursor:ns-resize;background:#1f2937;display:flex;align-items:center;justify-content:center;flex-shrink:0;","<div style='width:40px;height:2px;background:#4b5563;border-radius:1px;'></div>");
+drag.addEventListener("mousedown",function(me){me.preventDefault();var startY=me.clientY,startH=_panelH;function onMove(e){_panelH=Math.max(160,Math.min(window.innerHeight-40,startH+(startY-e.clientY)));_panel.style.height=_panelH+"px";}function onUp(){document.removeEventListener("mousemove",onMove);document.removeEventListener("mouseup",onUp);}document.addEventListener("mousemove",onMove);document.addEventListener("mouseup",onUp);});
+var hdr=_el("div","background:#1e1b4b;color:#e0e7ff;padding:0 12px;display:flex;align-items:center;gap:8px;height:36px;flex-shrink:0;");
+hdr.appendChild(_el("span","font-weight:700;font-size:13px;","Etiquetta Debug"));
+hdr.appendChild(_el("span","background:#6366f1;color:#fff;font-size:10px;padding:1px 6px;border-radius:3px;font-weight:600;","DRAFT"));
+var spacer=_el("div","flex:1;");hdr.appendChild(spacer);
+var collapseBtn=_el("button","background:none;border:none;color:#a5b4fc;cursor:pointer;font:12px monospace;padding:4px 8px;","Collapse");
+collapseBtn.onclick=function(){_collapsed=true;_panel.style.display="none";_badge.style.display="flex";};
+hdr.appendChild(collapseBtn);
+var tabs=_el("div","display:flex;gap:0;background:#1f2937;flex-shrink:0;border-bottom:1px solid #374151;");tabs.id="__etq_tabs";
+["summary","timeline","tags","variables","datalayer"].forEach(function(t){
+var btn=_el("button","background:none;border:none;border-bottom:2px solid transparent;color:#9ca3af;cursor:pointer;padding:6px 14px;font:12px monospace;white-space:nowrap;",t==="datalayer"?"Data Layer":t.charAt(0).toUpperCase()+t.slice(1));
+btn.setAttribute("data-tab",t);
+btn.onclick=function(){_activeTab=t;_renderConsole();};
+tabs.appendChild(btn);
+});
+_body=_el("div","flex:1;overflow-y:auto;padding:8px 12px;");
+_panel.appendChild(drag);_panel.appendChild(hdr);_panel.appendChild(tabs);_panel.appendChild(_body);
+document.body.appendChild(_panel);
+_badge=_el("div","position:fixed;bottom:12px;right:12px;background:#6366f1;color:#fff;padding:6px 14px;border-radius:20px;font:12px/1 monospace;font-weight:600;cursor:pointer;z-index:2147483647;display:none;align-items:center;gap:6px;box-shadow:0 2px 8px rgba(0,0,0,.3);",_events.length+" events");
+_badge.onclick=function(){_collapsed=false;_panel.style.display="flex";_badge.style.display="none";_renderConsole();};
+document.body.appendChild(_badge);
+}
+function _updateTabBar(){
+var tabs=document.getElementById("__etq_tabs");if(!tabs)return;
+var btns=tabs.getElementsByTagName("button");
+for(var i=0;i<btns.length;i++){
+var active=btns[i].getAttribute("data-tab")===_activeTab;
+btns[i].style.color=active?"#a5b4fc":"#9ca3af";
+btns[i].style.borderBottomColor=active?"#6366f1":"transparent";
+btns[i].style.background=active?"#111827":"none";
+}
+}
+function _renderSummary(){
+var fired=0,blocked=0;_events.forEach(function(ev){ev.tags.forEach(function(t){if(t.status==="fired")fired++;else blocked++;});});
+var h="<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;'>";
+h+="<div style='background:#1f2937;padding:12px;border-radius:6px;'><div style='color:#6b7280;font-size:11px;'>Events</div><div style='font-size:22px;font-weight:700;color:#e5e7eb;'>"+_events.length+"</div></div>";
+h+="<div style='background:#1f2937;padding:12px;border-radius:6px;'><div style='color:#6b7280;font-size:11px;'>Tags Fired</div><div style='font-size:22px;font-weight:700;color:#4ade80;'>"+fired+"</div></div>";
+h+="<div style='background:#1f2937;padding:12px;border-radius:6px;'><div style='color:#6b7280;font-size:11px;'>Tags Blocked</div><div style='font-size:22px;font-weight:700;color:#f87171;'>"+blocked+"</div></div>";
+h+="</div>";
+h+="<div style='background:#1f2937;padding:12px;border-radius:6px;margin-bottom:8px;'>";
+h+="<div style='color:#6b7280;font-size:11px;margin-bottom:6px;'>Container</div>";
+h+="<div style='color:#e5e7eb;'>Tags: "+C.tags.length+" &middot; Triggers: "+C.triggers.length+" &middot; Variables: "+C.variables.length+"</div>";
+h+="</div>";
+_body.innerHTML=h;
+}
+function _renderTimeline(){
+if(_events.length===0){_body.innerHTML="<div style='color:#6b7280;padding:20px;text-align:center;'>Waiting for events...</div>";return;}
+var h="";
+for(var i=_events.length-1;i>=0;i--){
+var ev=_events[i];
+var elapsed=((ev.ts-_startTs)/1000).toFixed(2);
+var icon=ev.type==="click"?"\u{1F5B1}":ev.type==="scroll_depth"?"\u{1F4DC}":ev.type==="timer"?"\u23F1":ev.type==="form_submit"?"\u{1F4DD}":ev.type==="history_change"?"\u{1F517}":ev.type==="custom_event"?"\u26A1":"\u{1F4C4}";
+h+="<details style='background:#1f2937;border-radius:6px;margin-bottom:4px;'>";
+h+="<summary style='padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;list-style:none;'>";
+h+="<span>"+icon+"</span>";
+h+="<span style='flex:1;color:#e5e7eb;font-weight:500;'>"+ev.label+"</span>";
+var firedCount=0,blockedCount=0;
+ev.tags.forEach(function(t){if(t.status==="fired")firedCount++;else blockedCount++;});
+if(firedCount)h+="<span style='background:#065f46;color:#6ee7b7;padding:1px 6px;border-radius:3px;font-size:10px;'>"+firedCount+" fired</span>";
+if(blockedCount)h+="<span style='background:#7f1d1d;color:#fca5a5;padding:1px 6px;border-radius:3px;font-size:10px;'>"+blockedCount+" blocked</span>";
+h+="<span style='color:#6b7280;font-size:11px;'>+"+elapsed+"s</span>";
+h+="</summary>";
+h+="<div style='padding:4px 12px 10px;border-top:1px solid #374151;'>";
+if(ev.tags.length){
+h+="<div style='color:#9ca3af;font-size:11px;margin:6px 0 4px;font-weight:600;'>TAGS</div>";
+ev.tags.forEach(function(t){
+var statusColor=t.status==="fired"?"#4ade80":t.status==="blocked_consent"?"#fb923c":"#f87171";
+var statusLabel=t.status==="fired"?"Fired":t.status==="blocked_consent"?"Blocked (consent: "+t.reason+")":t.status==="blocked_exception"?"Blocked (exception: "+t.reason+")":"Error";
+h+="<div style='display:flex;align-items:center;gap:8px;padding:2px 0;'>";
+h+="<span style='width:6px;height:6px;border-radius:50%;background:"+statusColor+";flex-shrink:0;'></span>";
+h+="<span style='color:#e5e7eb;'>"+t.name+"</span>";
+h+="<span style='color:#6b7280;font-size:11px;'>("+t.type+")</span>";
+h+="<span style='color:"+statusColor+";font-size:11px;margin-left:auto;'>"+statusLabel+"</span>";
+h+="</div>";
+});
+}
+if(ev.conditions.length){
+h+="<div style='color:#9ca3af;font-size:11px;margin:8px 0 4px;font-weight:600;'>CONDITIONS</div>";
+ev.conditions.forEach(function(c){
+var passColor=c.passed?"#4ade80":"#f87171";
+h+="<div style='display:flex;align-items:center;gap:6px;padding:2px 0;font-size:11px;'>";
+h+="<span style='color:"+passColor+";'>"+(c.passed?"\u2713":"\u2717")+"</span>";
+h+="<span style='color:#93c5fd;'>"+c.variable+"</span>";
+h+="<span style='color:#6b7280;'>"+c.operator+"</span>";
+h+="<span style='color:#fbbf24;'>\""+c.expected+"\"</span>";
+h+="<span style='color:#6b7280;'>(actual: \""+c.actual+"\")</span>";
+h+="</div>";
+});
+}
+h+="</div></details>";
+}
+_body.innerHTML=h;
+}
+function _renderTags(){
+var h="";
+C.tags.forEach(function(tag){
+var s=_tagStats[tag.name]||{fired:0,blocked:0,errors:0,last:""};
+var dotColor=s.last==="fired"?"#4ade80":s.last?"#f87171":"#6b7280";
+h+="<div style='display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #1f2937;'>";
+h+="<span style='width:8px;height:8px;border-radius:50%;background:"+dotColor+";flex-shrink:0;'></span>";
+h+="<div style='flex:1;'><div style='color:#e5e7eb;font-weight:500;'>"+tag.name+"</div><div style='color:#6b7280;font-size:11px;'>"+tag.tag_type+(tag.consent_category?" &middot; consent: "+tag.consent_category:"")+"</div></div>";
+h+="<span style='color:#4ade80;font-size:11px;'>"+s.fired+" fired</span>";
+if(s.blocked)h+="<span style='color:#f87171;font-size:11px;margin-left:4px;'>"+s.blocked+" blocked</span>";
+h+="</div>";
+});
+if(!C.tags.length)h="<div style='color:#6b7280;padding:20px;text-align:center;'>No tags configured</div>";
+_body.innerHTML=h;
+}
+function _renderVariables(){
+var h="";
+C.variables.forEach(function(v){
+var val;try{val=String(resolveVar(v));}catch(e){val="[error]";}
+h+="<div style='display:flex;align-items:flex-start;gap:8px;padding:6px 4px;border-bottom:1px solid #1f2937;'>";
+h+="<div style='flex:1;'><div style='color:#93c5fd;font-weight:500;'>"+v.name+"</div><div style='color:#6b7280;font-size:11px;'>"+v.variable_type+"</div></div>";
+h+="<div style='color:#fbbf24;font-size:11px;max-width:50%%;word-break:break-all;text-align:right;'>"+(val||"<span style='color:#6b7280;'>(empty)</span>")+"</div>";
+h+="</div>";
+});
+if(!C.variables.length)h="<div style='color:#6b7280;padding:20px;text-align:center;'>No variables configured</div>";
+_body.innerHTML=h;
+}
+function _renderDataLayer(){
+var dl=window.etiquettaDataLayer||[];
+if(!dl.length){_body.innerHTML="<div style='color:#6b7280;padding:20px;text-align:center;'>Data layer is empty</div>";return;}
+var h="<div style='color:#9ca3af;font-size:11px;margin-bottom:8px;'>"+dl.length+" entries in etiquettaDataLayer</div>";
+for(var i=dl.length-1;i>=0;i--){
+h+="<details style='background:#1f2937;border-radius:4px;margin-bottom:4px;'>";
+h+="<summary style='padding:6px 10px;cursor:pointer;color:#e5e7eb;font-size:11px;list-style:none;'>["+i+"] "+Object.keys(dl[i]||{}).join(", ")+"</summary>";
+h+="<pre style='padding:6px 10px;color:#a5b4fc;font-size:11px;overflow-x:auto;margin:0;border-top:1px solid #374151;'>"+JSON.stringify(dl[i],null,2)+"</pre>";
+h+="</details>";
+}
+_body.innerHTML=h;
+}
+setInterval(function(){if(!_collapsed&&(_activeTab==="variables"||_activeTab==="datalayer"))_renderConsole();},2000);
+`
 }

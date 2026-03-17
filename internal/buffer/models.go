@@ -66,6 +66,8 @@ type Performance struct {
 	DeviceType     string  `parquet:"device_type"`
 	ConnectionType string  `parquet:"connection_type"`
 	GeoCountry     string  `parquet:"geo_country"`
+	BotScore       int64   `parquet:"bot_score"`
+	BotCategory    string  `parquet:"bot_category"`
 }
 
 // ErrorEvent is the parquet-friendly representation of a JS error.
@@ -197,6 +199,10 @@ func ConvertEvent(e *database.Event) Event {
 
 // ConvertPerformance converts a database.Performance to a buffer.Performance.
 func ConvertPerformance(p *database.Performance) Performance {
+	botCategory := "human"
+	if p.BotCategory != "" {
+		botCategory = p.BotCategory
+	}
 	return Performance{
 		ID:             p.ID,
 		Timestamp:      timeToMs(p.Timestamp),
@@ -214,6 +220,8 @@ func ConvertPerformance(p *database.Performance) Performance {
 		DeviceType:     strFromPtr(p.DeviceType),
 		ConnectionType: strFromPtr(p.ConnectionType),
 		GeoCountry:     strFromPtr(p.GeoCountry),
+		BotScore:       int64(p.BotScore),
+		BotCategory:    botCategory,
 	}
 }
 

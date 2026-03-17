@@ -22,7 +22,7 @@
 
 ## Etiquetta on Railway
 
-This is a fork of [Etiquetta](https://etiquetta.com) with the addition of a nixpacks file to enable the service to be built on Railway. Some additional configuration in Railway is also necessary. 
+This is a fork of [Etiquetta](https://etiquetta.com) with some changes to enable the service to be built on Railway. Some additional configuration in Railway is also necessary. 
 
 To run Etiquetta on Railway:
 
