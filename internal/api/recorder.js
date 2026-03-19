@@ -77,20 +77,22 @@
 
   var isUnloading = false;
 
-  // Send payload to server — fetch first, sendBeacon only for page unload
+  // Send payload to server
+  // Normal flush: plain fetch (no size limit)
+  // Unload flush: sendBeacon or keepalive fetch (64KB limit, acceptable with checkoutEveryNms)
   function send(body) {
     var url = BASE_URL + '/r';
-    if (isUnloading && navigator.sendBeacon) {
-      var sent = navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
-      if (sent) return;
-      // sendBeacon failed (payload too large) — fall through to fetch
+    if (isUnloading) {
+      if (navigator.sendBeacon) {
+        var sent = navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+        if (sent) return;
+      }
+      // Last resort during unload — may fail for large payloads
+      fetch(url, { method: 'POST', body: body, keepalive: true, headers: { 'Content-Type': 'application/json' } }).catch(function() {});
+    } else {
+      // Normal flush — no keepalive, no size limit
+      fetch(url, { method: 'POST', body: body, headers: { 'Content-Type': 'application/json' } }).catch(function() {});
     }
-    fetch(url, {
-      method: 'POST',
-      body: body,
-      keepalive: true,
-      headers: { 'Content-Type': 'application/json' }
-    }).catch(function() {});
   }
 
   // Flush buffered events to server
