@@ -4,11 +4,14 @@ import { useReplay } from '@/hooks/useReplayQueries'
 import 'rrweb-player/dist/style.css'
 import { FeatureGate } from '@/components/FeatureGate'
 import {
+  AlertTriangle,
   ArrowLeft,
   Clock,
   Loader2,
 } from 'lucide-react'
 import type { eventWithTime } from 'rrweb'
+
+const RRWEB_FULL_SNAPSHOT = 2
 
 function formatDuration(ms: number): string {
   const sec = Math.floor(ms / 1000)
@@ -25,36 +28,59 @@ function ReplayPlayerContent() {
   const playerRef = useRef<{ setSpeed: (speed: number) => void; $destroy?: () => void } | null>(null)
   const [speed, setSpeed] = useState(1)
   const [playerReady, setPlayerReady] = useState(false)
+  const [playerError, setPlayerError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!data?.events?.length || !containerRef.current) return
+
+    const events = data.events as eventWithTime[]
+    const hasFullSnapshot = events.some((e) => e.type === RRWEB_FULL_SNAPSHOT)
+    if (!hasFullSnapshot) {
+      setPlayerError('This recording is incomplete — no full DOM snapshot was captured. The initial page state may have been too large to transmit.')
+      return
+    }
 
     // Clear previous player
     if (containerRef.current.firstChild) {
       containerRef.current.innerHTML = ''
     }
+    setPlayerError(null)
 
-    // Dynamically import rrweb-player to avoid SSR issues
-    import('rrweb-player').then(({ default: RRWebPlayer }) => {
-      if (!containerRef.current) return
+    const container = containerRef.current
+    // Use requestAnimationFrame to ensure container is laid out
+    requestAnimationFrame(() => {
+      if (!container) return
 
-      const player = new RRWebPlayer({
-        target: containerRef.current,
-        props: {
-          events: data.events as eventWithTime[],
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight - 80,
-          autoPlay: true,
-          showController: true,
-          skipInactive: true,
-          speed,
-        },
+      import('rrweb-player').then(({ default: RRWebPlayer }) => {
+        if (!container) return
+
+        try {
+          const width = container.clientWidth || 800
+          const height = Math.max(container.clientHeight - 80, 400)
+
+          const player = new RRWebPlayer({
+            target: container,
+            props: {
+              events,
+              width,
+              height,
+              autoPlay: true,
+              showController: true,
+              skipInactive: true,
+              speed,
+            },
+          })
+
+          playerRef.current = player
+          setPlayerReady(true)
+        } catch (err) {
+          console.error('Failed to initialize rrweb-player:', err)
+          setPlayerError('Failed to initialize the replay player. The recording data may be corrupt.')
+        }
+      }).catch((err) => {
+        console.error('Failed to load rrweb-player:', err)
+        setPlayerError('Failed to load the replay player module.')
       })
-
-      playerRef.current = player
-      setPlayerReady(true)
-    }).catch((err) => {
-      console.error('Failed to load rrweb-player:', err)
     })
 
     return () => {
@@ -140,10 +166,19 @@ function ReplayPlayerContent() {
       </div>
 
       {/* Player */}
-      <div
-        ref={containerRef}
-        className="flex-1 bg-zinc-950 overflow-hidden"
-      />
+      {playerError ? (
+        <div className="flex-1 bg-zinc-950 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3 text-center max-w-md px-4">
+            <AlertTriangle className="h-8 w-8 text-yellow-500" />
+            <p className="text-sm text-muted-foreground">{playerError}</p>
+          </div>
+        </div>
+      ) : (
+        <div
+          ref={containerRef}
+          className="flex-1 bg-zinc-950 overflow-hidden"
+        />
+      )}
     </div>
   )
 }

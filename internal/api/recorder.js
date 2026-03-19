@@ -75,6 +75,24 @@
     return 'Other';
   }
 
+  var isUnloading = false;
+
+  // Send payload to server — fetch first, sendBeacon only for page unload
+  function send(body) {
+    var url = BASE_URL + '/r';
+    if (isUnloading && navigator.sendBeacon) {
+      var sent = navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+      if (sent) return;
+      // sendBeacon failed (payload too large) — fall through to fetch
+    }
+    fetch(url, {
+      method: 'POST',
+      body: body,
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json' }
+    }).catch(function() {});
+  }
+
   // Flush buffered events to server
   function flush() {
     if (flushTimer) {
@@ -105,19 +123,7 @@
       };
     }
 
-    var body = JSON.stringify(payload);
-
-    if (navigator.sendBeacon) {
-      navigator.sendBeacon(BASE_URL + '/r', new Blob([body], { type: 'application/json' }));
-    } else {
-      fetch(BASE_URL + '/r', {
-        method: 'POST',
-        body: body,
-        keepalive: true,
-        headers: { 'Content-Type': 'application/json' }
-      }).catch(function() {});
-    }
-
+    send(JSON.stringify(payload));
     log('Flushed', events.length, 'replay events');
   }
 
@@ -169,6 +175,7 @@
           scheduleFlush();
         }
       },
+      checkoutEveryNms: 15000,
       maskAllText: config.mask_text !== false,
       maskAllInputs: config.mask_inputs !== false,
       blockSelector: '.etq-no-record',
@@ -184,11 +191,15 @@
     });
 
     // Flush on page hide / unload
+    function onUnload() {
+      isUnloading = true;
+      flush();
+    }
     document.addEventListener('visibilitychange', function() {
-      if (document.visibilityState === 'hidden') flush();
+      if (document.visibilityState === 'hidden') onUnload();
     });
-    window.addEventListener('pagehide', flush);
-    window.addEventListener('beforeunload', flush);
+    window.addEventListener('pagehide', onUnload);
+    window.addEventListener('beforeunload', onUnload);
   }
 
   function stopRecording() {
