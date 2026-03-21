@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useReplays, useReplayStats, useDeleteReplay } from '@/hooks/useReplayQueries'
+import { useReplays, useReplayStats, useDeleteReplay, useDeleteReplaysBatch } from '@/hooks/useReplayQueries'
 import { useSelectedDomain } from '@/hooks/useSelectedDomain'
 import { FeatureGate } from '@/components/FeatureGate'
 import { toast } from 'sonner'
@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -73,12 +74,21 @@ const DURATION_FILTERS: { label: string; min?: string; max?: string }[] = [
 function RecordingRow({
   recording,
   onDelete,
+  selected,
+  onToggleSelect,
 }: {
   recording: SessionRecording
   onDelete: (id: string) => void
+  selected: boolean
+  onToggleSelect: (id: string) => void
 }) {
   return (
     <div className="flex items-center gap-4 p-4 border-b border-border hover:bg-muted/50 transition-colors">
+      <Checkbox
+        checked={selected}
+        onCheckedChange={() => onToggleSelect(recording.session_id)}
+        className="shrink-0"
+      />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <DeviceIcon type={recording.device_type} />
@@ -153,6 +163,8 @@ function ReplayListContent() {
   const [osName, setOsName] = useState('')
   const [durationIdx, setDurationIdx] = useState(0)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
   const limit = 20
 
   const durationFilter = DURATION_FILTERS[durationIdx]
@@ -170,6 +182,7 @@ function ReplayListContent() {
 
   const { data: stats } = useReplayStats()
   const deleteMutation = useDeleteReplay()
+  const batchDeleteMutation = useDeleteReplaysBatch()
 
   const handleDelete = () => {
     if (!deleteTarget) return
@@ -177,8 +190,49 @@ function ReplayListContent() {
       onSuccess: () => {
         toast.success('Recording deleted')
         setDeleteTarget(null)
+        setSelectedIds(prev => { const next = new Set(prev); next.delete(deleteTarget); return next })
       },
       onError: () => toast.error('Failed to delete recording'),
+    })
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (recordings.length === 0) return
+    const allOnPage = recordings.map(r => r.session_id)
+    const allSelected = allOnPage.every(id => selectedIds.has(id))
+    if (allSelected) {
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        allOnPage.forEach(id => next.delete(id))
+        return next
+      })
+    } else {
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        allOnPage.forEach(id => next.add(id))
+        return next
+      })
+    }
+  }
+
+  const handleBatchDelete = () => {
+    const ids = Array.from(selectedIds)
+    batchDeleteMutation.mutate(ids, {
+      onSuccess: (result) => {
+        toast.success(`Deleted ${result.deleted} recording${result.deleted !== 1 ? 's' : ''}`)
+        setSelectedIds(new Set())
+        setBatchDeleteOpen(false)
+      },
+      onError: () => toast.error('Failed to delete recordings'),
     })
   }
 
@@ -298,6 +352,28 @@ function ReplayListContent() {
         )}
       </div>
 
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/50">
+          <span className="text-sm font-medium">{selectedIds.size} selected</span>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setBatchDeleteOpen(true)}
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+            Delete Selected
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSelectedIds(new Set())}
+          >
+            Deselect All
+          </Button>
+        </div>
+      )}
+
       <div className="rounded-lg border">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
@@ -312,13 +388,26 @@ function ReplayListContent() {
             </p>
           </div>
         ) : (
-          recordings.map((rec) => (
-            <RecordingRow
-              key={rec.session_id}
-              recording={rec}
-              onDelete={setDeleteTarget}
-            />
-          ))
+          <>
+            {/* Select all header */}
+            <div className="flex items-center gap-4 px-4 py-2 border-b border-border bg-muted/30">
+              <Checkbox
+                checked={recordings.length > 0 && recordings.every(r => selectedIds.has(r.session_id))}
+                onCheckedChange={toggleSelectAll}
+                className="shrink-0"
+              />
+              <span className="text-xs text-muted-foreground">Select all on this page</span>
+            </div>
+            {recordings.map((rec) => (
+              <RecordingRow
+                key={rec.session_id}
+                recording={rec}
+                onDelete={setDeleteTarget}
+                selected={selectedIds.has(rec.session_id)}
+                onToggleSelect={toggleSelect}
+              />
+            ))}
+          </>
         )}
       </div>
 
@@ -370,6 +459,30 @@ function ReplayListContent() {
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch delete confirmation dialog */}
+      <Dialog open={batchDeleteOpen} onOpenChange={setBatchDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {selectedIds.size} recording{selectedIds.size !== 1 ? 's' : ''}</DialogTitle>
+            <DialogDescription>
+              This will permanently delete the selected session recordings and their data. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBatchDeleteOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBatchDelete}
+              disabled={batchDeleteMutation.isPending}
+            >
+              {batchDeleteMutation.isPending ? 'Deleting...' : `Delete ${selectedIds.size} Recording${selectedIds.size !== 1 ? 's' : ''}`}
             </Button>
           </DialogFooter>
         </DialogContent>

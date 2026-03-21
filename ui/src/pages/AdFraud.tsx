@@ -1,7 +1,10 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { fetchAPI } from '@/lib/api'
 import { useDateRangeStore } from '../stores/useDateRangeStore'
-import { useFraudSummary, useSourceQuality, useAdFraudCampaigns, useCreateCampaign, useDeleteCampaign } from '../hooks/useAnalyticsQueries'
+import { useDomainStore } from '../stores/useDomainStore'
+import { useFraudSummary, useSourceQuality, useAdFraudCampaigns, useCreateCampaign, useDeleteCampaign, useAvailableEventNames } from '../hooks/useAnalyticsQueries'
+import { useDomainSettings, useUpdateDomainSettings } from '../hooks/useDomainSettings'
 import { FeatureGate } from '../components/FeatureGate'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
@@ -9,15 +12,23 @@ import { Input } from '../components/ui/input'
 import { DateRangePicker } from '../components/ui/date-range-picker'
 import { Skeleton } from '../components/ui/skeleton'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select'
+import {
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
 } from '../components/ui/chart'
-import { ShieldAlert, DollarSign, AlertTriangle, TrendingDown, Plus, Trash2, Download } from 'lucide-react'
+import { ShieldAlert, DollarSign, TrendingDown, Plus, Trash2, Download, Target, Crosshair, Server } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell } from 'recharts'
 import { toast } from 'sonner'
 import { formatNumber } from '@/lib/utils'
+import type { FraudSignal } from '@/lib/types'
 
 const qualityChartConfig = {
   quality_score: { label: 'Quality Score', color: 'var(--chart-2)' },
@@ -35,6 +46,14 @@ function getQualityColor(score: number): string {
   return 'hsl(0, 84%, 60%)'
 }
 
+function getSeverityColor(severity: FraudSignal['severity']): string {
+  switch (severity) {
+    case 'high': return 'text-red-500 bg-red-500/10'
+    case 'medium': return 'text-yellow-500 bg-yellow-500/10'
+    case 'low': return 'text-blue-500 bg-blue-500/10'
+  }
+}
+
 function StatCardSkeleton() {
   return (
     <Card>
@@ -47,10 +66,15 @@ function StatCardSkeleton() {
 }
 
 function AdFraudContent() {
+  const queryClient = useQueryClient()
   const { dateRange, setDateRange } = useDateRangeStore()
+  const { selectedDomainId } = useDomainStore()
   const { data: fraudData, isLoading: fraudLoading, isPlaceholderData: fraudStale } = useFraudSummary()
   const { data: sourceQuality, isLoading: qualityLoading, isPlaceholderData: qualityStale } = useSourceQuality()
   const { data: campaigns, isLoading: campaignsLoading } = useAdFraudCampaigns()
+  const { data: eventNames } = useAvailableEventNames()
+  const { data: domainSettings } = useDomainSettings(selectedDomainId)
+  const updateSettings = useUpdateDomainSettings(selectedDomainId)
   const createCampaign = useCreateCampaign()
   const deleteCampaign = useDeleteCampaign()
 
@@ -59,6 +83,19 @@ function AdFraudContent() {
 
   const isLoading = fraudLoading || qualityLoading
   const isStale = fraudStale || qualityStale
+  const currentConversionEvent = domainSettings?.conversion_event || ''
+
+  const handleConversionEventChange = (value: string) => {
+    const eventValue = value === '__none__' ? '' : value
+    updateSettings.mutate(
+      { conversion_event: eventValue },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ['stats', 'fraud'] })
+        },
+      }
+    )
+  }
 
   const handleAddCampaign = () => {
     createCampaign.mutate(
@@ -94,7 +131,7 @@ function AdFraudContent() {
   }))
 
   return (
-    <div className="p-6 space-y-6" style={{ opacity: isStale ? 0.6 : 1, transition: 'opacity 150ms' }}>
+    <div className="p-6 space-y-6 overflow-y-auto h-full" style={{ opacity: isStale ? 0.6 : 1, transition: 'opacity 150ms' }}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -107,19 +144,23 @@ function AdFraudContent() {
         <DateRangePicker dateRange={dateRange} onDateRangeChange={setDateRange} />
       </div>
 
-      {/* Fraud Summary Cards */}
+      {/* Fraud Summary Cards — 6 cards */}
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton />
+          <StatCardSkeleton /><StatCardSkeleton /><StatCardSkeleton />
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <Card className="transition-all hover:shadow-md hover:border-primary/20">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Total Clicks</p>
                   <p className="text-2xl font-bold mt-1">{formatNumber(fraudData?.total_clicks || 0)}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {formatNumber(fraudData?.human_clicks || 0)} human
+                  </p>
                 </div>
                 <div className="h-10 w-10 rounded-xl bg-muted flex items-center justify-center">
                   <TrendingDown className="h-5 w-5 text-muted-foreground" />
@@ -164,16 +205,114 @@ function AdFraudContent() {
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Real CPC</p>
+                  <p className="text-2xl font-bold mt-1">
+                    {fraudData?.real_cpc != null ? formatCurrency(fraudData.real_cpc) : (
+                      <span className="text-muted-foreground text-lg">N/A</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">spend / human clicks</p>
+                </div>
+                <div className="h-10 w-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                  <Crosshair className="h-5 w-5 text-emerald-500" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="transition-all hover:shadow-md hover:border-primary/20">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Real CPA</p>
+                  <p className="text-2xl font-bold mt-1">
+                    {fraudData?.real_cpa != null ? formatCurrency(fraudData.real_cpa) : (
+                      <span className="text-muted-foreground text-lg">
+                        {currentConversionEvent ? 'N/A' : 'Set event'}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {fraudData?.conversions != null && fraudData.conversions > 0
+                      ? `${formatNumber(fraudData.conversions)} conversions`
+                      : 'spend / conversions'}
+                  </p>
+                </div>
+                <div className="h-10 w-10 rounded-xl bg-violet-500/10 flex items-center justify-center">
+                  <Target className="h-5 w-5 text-violet-500" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="transition-all hover:shadow-md hover:border-primary/20">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div>
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Datacenter Traffic</p>
-                  <p className="text-2xl font-bold mt-1">{formatNumber(fraudData?.datacenter_traffic || 0)}</p>
+                  <p className="text-2xl font-bold mt-1">{formatNumber(fraudData?.datacenter_clicks || 0)}</p>
                 </div>
                 <div className="h-10 w-10 rounded-xl bg-yellow-500/10 flex items-center justify-center">
-                  <AlertTriangle className="h-5 w-5 text-yellow-500" />
+                  <Server className="h-5 w-5 text-yellow-500" />
                 </div>
               </div>
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Conversion Event Selector */}
+      {selectedDomainId && (
+        <div className="flex items-center gap-4">
+          <label className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+            Conversion Event
+          </label>
+          <Select
+            value={currentConversionEvent || '__none__'}
+            onValueChange={handleConversionEventChange}
+            disabled={updateSettings.isPending}
+          >
+            <SelectTrigger className="w-[240px]">
+              <SelectValue placeholder="Select an event..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__none__">None</SelectItem>
+              {(eventNames || []).map((name) => (
+                <SelectItem key={name} value={name}>{name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {currentConversionEvent && (
+            <span className="text-xs text-muted-foreground">
+              Real CPA = total spend / human &ldquo;{currentConversionEvent}&rdquo; events
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Fraud Signals */}
+      {fraudData?.signals && fraudData.signals.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold">Detected Fraud Signals</CardTitle>
+            <CardDescription>Suspicious patterns found in your campaign traffic</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {fraudData.signals.map((signal, i) => (
+                <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-border">
+                  <div className="flex items-center gap-3">
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${getSeverityColor(signal.severity)}`}>
+                      {signal.severity}
+                    </span>
+                    <span className="text-sm">{signal.description}</span>
+                  </div>
+                  <span className="text-sm font-semibold tabular-nums">{formatNumber(signal.count)}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Source Quality */}

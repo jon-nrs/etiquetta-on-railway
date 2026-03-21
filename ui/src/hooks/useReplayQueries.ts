@@ -88,3 +88,19 @@ export function useDeleteReplay() {
     },
   })
 }
+
+export function useDeleteReplaysBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (sessionIds: string[]) =>
+      fetchAPI<{ deleted: number; errors: string[] }>('/api/replays/batch', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_ids: sessionIds }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['replays'] })
+      queryClient.invalidateQueries({ queryKey: ['replay-stats'] })
+    },
+  })
+}

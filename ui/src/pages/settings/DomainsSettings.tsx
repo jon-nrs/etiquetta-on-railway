@@ -41,10 +41,10 @@ export function DomainsSettings() {
   }
 
   return (
-    <SettingsLayout title="Domains" description="Manage your tracked domains">
+    <SettingsLayout title="Properties" description="Manage your tracked properties">
       <Card>
         <CardHeader>
-          <CardTitle>Add Domain</CardTitle>
+          <CardTitle>Add Property</CardTitle>
           <CardDescription>Register a domain to start tracking analytics</CardDescription>
         </CardHeader>
         <CardContent>
@@ -73,14 +73,14 @@ export function DomainsSettings() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Registered Domains</CardTitle>
-          <CardDescription>Click the copy button to get the tracking snippet for each domain</CardDescription>
+          <CardTitle>Registered Properties</CardTitle>
+          <CardDescription>Click the copy button to get the tracking snippet for each property</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
             <p className="text-muted-foreground">Loading...</p>
           ) : !domains || domains.length === 0 ? (
-            <p className="text-muted-foreground">No domains registered yet.</p>
+            <p className="text-muted-foreground">No properties registered yet.</p>
           ) : (
             <div className="space-y-3">
               {domains.map((domain) => (

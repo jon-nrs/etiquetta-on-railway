@@ -328,6 +328,48 @@ func (h *Handlers) DeleteReplay(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// DeleteReplaysBatch deletes multiple session recordings at once.
+// DELETE /api/replays/batch
+func (h *Handlers) DeleteReplaysBatch(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		SessionIDs []string `json:"session_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON"})
+		return
+	}
+
+	if len(input.SessionIDs) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session_ids required"})
+		return
+	}
+	if len(input.SessionIDs) > 100 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "maximum 100 recordings per batch"})
+		return
+	}
+
+	deleted := 0
+	var errors []string
+	for _, sessionID := range input.SessionIDs {
+		var domain string
+		err := h.db.Conn().QueryRow("SELECT domain FROM session_recordings WHERE session_id = ?", sessionID).Scan(&domain)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: not found", sessionID))
+			continue
+		}
+
+		replayStore.Delete(domain, sessionID)
+		h.db.Conn().Exec("DELETE FROM session_recordings WHERE session_id = ?", sessionID)
+		deleted++
+	}
+
+	h.logAudit(r, "delete", "session_recording", "", fmt.Sprintf("Batch deleted %d recordings", deleted))
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"deleted": deleted,
+		"errors":  errors,
+	})
+}
+
 // GetReplayStats returns storage usage info.
 // GET /api/replays/stats
 func (h *Handlers) GetReplayStats(w http.ResponseWriter, r *http.Request) {

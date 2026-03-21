@@ -265,21 +265,33 @@ function AppSidebar() {
     { path: '/migrate', name: 'Migrate', icon: Import, adminOnly: true },
   ]
 
-  const settingsItems = [
-    { path: '/settings/domains', name: 'Domains', icon: Globe },
-    { path: '/settings/tracking', name: 'Tracking', icon: Activity, adminOnly: true },
-    { path: '/settings/email', name: 'Email', icon: Mail, adminOnly: true },
-    { path: '/settings/geoip', name: 'GeoIP', icon: MapPin, adminOnly: true },
-    { path: '/settings/connections', name: 'Connections', icon: Cable, adminOnly: true },
-    { path: '/settings/api-keys', name: 'API Keys', icon: KeyRound, adminOnly: true },
-    { path: '/settings/account', name: 'Account', icon: User },
-    { path: '/settings/users', name: 'Users', icon: UsersIcon, adminOnly: true, pro: 'multi_user' },
-    { path: '/settings/license', name: 'License', icon: Key },
+  const settingsGroups = [
+    {
+      label: 'Property',
+      items: [
+        { path: '/settings/tracking', name: 'Tracking', icon: Activity, adminOnly: true },
+        { path: '/settings/replay', name: 'Replay', icon: Video, adminOnly: true, pro: 'session_replay' },
+        { path: '/settings/connections', name: 'Connections', icon: Cable, adminOnly: true },
+      ],
+    },
+    {
+      label: 'Instance',
+      items: [
+        { path: '/settings/email', name: 'Email', icon: Mail, adminOnly: true },
+        { path: '/settings/geoip', name: 'GeoIP', icon: MapPin, adminOnly: true },
+        { path: '/settings/license', name: 'License', icon: Key },
+      ],
+    },
+    {
+      label: 'Account',
+      items: [
+        { path: '/settings/properties', name: 'Properties', icon: Globe },
+        { path: '/settings/account', name: 'Profile', icon: User },
+        { path: '/settings/api-keys', name: 'API Keys', icon: KeyRound, adminOnly: true },
+        { path: '/settings/users', name: 'Users', icon: UsersIcon, adminOnly: true, pro: 'multi_user' },
+      ],
+    },
   ]
-
-  const visibleSettingsItems = settingsItems.filter(
-    item => !item.adminOnly || isAdmin
-  )
 
   return (
     <Sidebar collapsible="icon">
@@ -352,20 +364,31 @@ function AppSidebar() {
                   </CollapsibleTrigger>
                   <CollapsibleContent>
                     <SidebarMenuSub>
-                      {visibleSettingsItems.map((item) => (
-                        <SidebarMenuSubItem key={item.path}>
-                          <SidebarMenuSubButton
-                            asChild
-                            isActive={location.pathname === item.path}
-                          >
-                            <Link to={item.path}>
-                              <item.icon className="h-4 w-4" />
-                              <span className="flex-1">{item.name}</span>
-                              {item.pro && <FeatureBadge feature={item.pro} />}
-                            </Link>
-                          </SidebarMenuSubButton>
-                        </SidebarMenuSubItem>
-                      ))}
+                      {settingsGroups.map((group) => {
+                        const visibleItems = group.items.filter(item => !item.adminOnly || isAdmin)
+                        if (visibleItems.length === 0) return null
+                        return (
+                          <div key={group.label}>
+                            <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                              {group.label}
+                            </div>
+                            {visibleItems.map((item) => (
+                              <SidebarMenuSubItem key={item.path}>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  isActive={location.pathname === item.path}
+                                >
+                                  <Link to={item.path}>
+                                    <item.icon className="h-4 w-4" />
+                                    <span className="flex-1">{item.name}</span>
+                                    {item.pro && <FeatureBadge feature={item.pro} />}
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            ))}
+                          </div>
+                        )
+                      })}
                     </SidebarMenuSub>
                   </CollapsibleContent>
                 </SidebarMenuItem>
@@ -419,8 +442,10 @@ function AppLayout() {
               <Route path="/fraud" element={<AdFraud />} />
               <Route path="/explorer" element={<Explorer />} />
               {/* Settings routes */}
-              <Route path="/settings" element={<Navigate to="/settings/domains" replace />} />
-              <Route path="/settings/domains" element={<DomainsSettings />} />
+              <Route path="/settings" element={<Navigate to="/settings/properties" replace />} />
+              <Route path="/settings/properties" element={<DomainsSettings />} />
+              <Route path="/settings/domains" element={<Navigate to="/settings/properties" replace />} />
+              <Route path="/settings/replay" element={<ReplaySettings />} />
               <Route path="/settings/tracking" element={<TrackingSettings />} />
               <Route path="/settings/email" element={<EmailSettings />} />
               <Route path="/settings/geoip" element={<GeoIPSettings />} />
