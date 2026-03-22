@@ -67,7 +67,7 @@ export function DomainPicker() {
       <Button variant="outline" className="w-full justify-start" asChild>
         <Link to="/settings">
           <Plus className="mr-2 h-4 w-4" />
-          Add Domain
+          Add Property
         </Link>
       </Button>
     )
@@ -96,7 +96,7 @@ export function DomainPicker() {
                 <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted shrink-0">
                   <Globe className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <span className="font-medium text-muted-foreground">Select Domain</span>
+                <span className="font-medium text-muted-foreground">Select Property</span>
               </>
             )}
           </span>
@@ -105,10 +105,10 @@ export function DomainPicker() {
       </PopoverTrigger>
       <PopoverContent className="w-[280px] p-0" align="start">
         <Command>
-          <CommandInput placeholder="Search domains..." />
+          <CommandInput placeholder="Search properties..." />
           <CommandList>
-            <CommandEmpty>No domains found.</CommandEmpty>
-            <CommandGroup heading="Your Domains">
+            <CommandEmpty>No properties found.</CommandEmpty>
+            <CommandGroup heading="Your Properties">
               {domains.map((domain) => (
                 <CommandItem key={domain.id} value={`${domain.name} ${domain.domain}`} onSelect={() => handleSelect(domain.id)} className="py-2">
                   <DomainAvatar name={domain.name} />
@@ -126,14 +126,14 @@ export function DomainPicker() {
                 value="manage-domains"
                 onSelect={() => {
                   setOpen(false)
-                  navigate('/settings')
+                  navigate('/settings/properties')
                 }}
                 className="py-2"
               >
                 <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted shrink-0">
                   <Settings className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <span>Manage Domains</span>
+                <span>Manage Properties</span>
               </CommandItem>
             </CommandGroup>
           </CommandList>

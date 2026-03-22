@@ -1,10 +1,11 @@
-import { useReplaySettings, useUpdateReplaySettings, useReplayStats } from '@/hooks/useReplayQueries'
+import { useReplayStats } from '@/hooks/useReplayQueries'
+import { useDomainSettings, useUpdateDomainSettings } from '@/hooks/useDomainSettings'
+import { useDomainStore } from '@/stores/useDomainStore'
 import { FeatureGate } from '@/components/FeatureGate'
 import { toast } from 'sonner'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, HardDrive, Save } from 'lucide-react'
-import type { ReplaySettings as ReplaySettingsType } from '@/lib/types'
+import { ArrowLeft, HardDrive, Save, Info } from 'lucide-react'
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -13,15 +14,56 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
 
-function ReplaySettingsForm({ initial }: { initial: ReplaySettingsType }) {
+function ScopeIndicator({ scope }: { scope: string | undefined }) {
+  if (scope !== 'global') return null
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground ml-1">
+      <Info className="h-3 w-3" />
+      default
+    </span>
+  )
+}
+
+function ReplaySettingsForm() {
+  const selectedDomainId = useDomainStore(s => s.selectedDomainId)
+  const { data: settings } = useDomainSettings(selectedDomainId)
+  const updateSettings = useUpdateDomainSettings(selectedDomainId)
   const { data: stats } = useReplayStats()
-  const updateMutation = useUpdateReplaySettings()
-  const [form, setForm] = useState(initial)
+  const [edited, setEdited] = useState<Record<string, string>>({})
+
+  const hasChanges = useMemo(() => Object.keys(edited).length > 0, [edited])
+
+  function getBool(key: string, fallback: boolean): boolean {
+    const val = edited[key] ?? settings?.[key]
+    if (val === undefined) return fallback
+    return val === 'true' || val === '1'
+  }
+
+  function getNumber(key: string, fallback: number): number {
+    const val = edited[key] ?? settings?.[key]
+    if (val === undefined) return fallback
+    return Number(val) || fallback
+  }
+
+  function getScope(key: string): string | undefined {
+    return settings?.['scope:' + key]
+  }
+
+  function setBool(key: string, value: boolean) {
+    setEdited(prev => ({ ...prev, [key]: value ? 'true' : 'false' }))
+  }
+
+  function setNum(key: string, value: number) {
+    setEdited(prev => ({ ...prev, [key]: String(value) }))
+  }
 
   const handleSave = () => {
-    updateMutation.mutate(form, {
-      onSuccess: () => toast.success('Replay settings updated'),
-      onError: () => toast.error('Failed to update settings'),
+    if (!hasChanges) return
+    updateSettings.mutate(edited, {
+      onSuccess: () => {
+        setEdited({})
+        toast.success('Replay settings updated')
+      },
     })
   }
 
@@ -33,7 +75,7 @@ function ReplaySettingsForm({ initial }: { initial: ReplaySettingsType }) {
         </Link>
         <div>
           <h1 className="text-2xl font-bold">Session Replay Settings</h1>
-          <p className="text-muted-foreground">Configure recording behavior and privacy</p>
+          <p className="text-muted-foreground">Configure recording behavior and privacy for this property</p>
         </div>
       </div>
 
@@ -43,6 +85,7 @@ function ReplaySettingsForm({ initial }: { initial: ReplaySettingsType }) {
           <div className="flex-1">
             <div className="text-sm font-medium">
               Storage: {formatBytes(stats.disk_usage_bytes)} / {formatBytes(stats.quota_bytes)}
+              <span className="text-xs text-muted-foreground ml-2">(instance-wide)</span>
             </div>
             <div className="mt-1 h-2 bg-muted rounded-full overflow-hidden">
               <div
@@ -63,18 +106,21 @@ function ReplaySettingsForm({ initial }: { initial: ReplaySettingsType }) {
         {/* Enable/Disable */}
         <div className="flex items-center justify-between rounded-lg border p-4">
           <div>
-            <div className="font-medium">Enable Session Replay</div>
+            <div className="font-medium">
+              Enable Session Replay
+              <ScopeIndicator scope={getScope('replay_enabled')} />
+            </div>
             <div className="text-sm text-muted-foreground">Record user sessions for playback</div>
           </div>
           <button
-            onClick={() => setForm(f => ({ ...f, enabled: !f.enabled }))}
+            onClick={() => setBool('replay_enabled', !getBool('replay_enabled', false))}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              form.enabled ? 'bg-primary' : 'bg-muted'
+              getBool('replay_enabled', false) ? 'bg-primary' : 'bg-muted'
             }`}
           >
             <span
               className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-                form.enabled ? 'translate-x-6' : 'translate-x-1'
+                getBool('replay_enabled', false) ? 'translate-x-6' : 'translate-x-1'
               }`}
             />
           </button>
@@ -84,17 +130,20 @@ function ReplaySettingsForm({ initial }: { initial: ReplaySettingsType }) {
         <div className="rounded-lg border p-4 space-y-2">
           <div className="flex items-center justify-between">
             <div>
-              <div className="font-medium">Sample Rate</div>
+              <div className="font-medium">
+                Sample Rate
+                <ScopeIndicator scope={getScope('replay_sample_rate')} />
+              </div>
               <div className="text-sm text-muted-foreground">Percentage of sessions to record</div>
             </div>
-            <span className="text-lg font-bold">{form.sample_rate}%</span>
+            <span className="text-lg font-bold">{getNumber('replay_sample_rate', 10)}%</span>
           </div>
           <input
             type="range"
             min={0}
             max={100}
-            value={form.sample_rate}
-            onChange={e => setForm(f => ({ ...f, sample_rate: Number(e.target.value) }))}
+            value={getNumber('replay_sample_rate', 10)}
+            onChange={e => setNum('replay_sample_rate', Number(e.target.value))}
             className="w-full"
           />
           <div className="flex justify-between text-xs text-muted-foreground">
@@ -109,36 +158,42 @@ function ReplaySettingsForm({ initial }: { initial: ReplaySettingsType }) {
           <div className="font-medium">Privacy</div>
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm font-medium">Mask all text</div>
+              <div className="text-sm font-medium">
+                Mask all text
+                <ScopeIndicator scope={getScope('replay_mask_text')} />
+              </div>
               <div className="text-xs text-muted-foreground">Replace visible text with asterisks</div>
             </div>
             <button
-              onClick={() => setForm(f => ({ ...f, mask_text: !f.mask_text }))}
+              onClick={() => setBool('replay_mask_text', !getBool('replay_mask_text', true))}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                form.mask_text ? 'bg-primary' : 'bg-muted'
+                getBool('replay_mask_text', true) ? 'bg-primary' : 'bg-muted'
               }`}
             >
               <span
                 className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-                  form.mask_text ? 'translate-x-6' : 'translate-x-1'
+                  getBool('replay_mask_text', true) ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
             </button>
           </div>
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm font-medium">Mask all inputs</div>
+              <div className="text-sm font-medium">
+                Mask all inputs
+                <ScopeIndicator scope={getScope('replay_mask_inputs')} />
+              </div>
               <div className="text-xs text-muted-foreground">Hide form field values in recordings</div>
             </div>
             <button
-              onClick={() => setForm(f => ({ ...f, mask_inputs: !f.mask_inputs }))}
+              onClick={() => setBool('replay_mask_inputs', !getBool('replay_mask_inputs', true))}
               className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                form.mask_inputs ? 'bg-primary' : 'bg-muted'
+                getBool('replay_mask_inputs', true) ? 'bg-primary' : 'bg-muted'
               }`}
             >
               <span
                 className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-                  form.mask_inputs ? 'translate-x-6' : 'translate-x-1'
+                  getBool('replay_mask_inputs', true) ? 'translate-x-6' : 'translate-x-1'
                 }`}
               />
             </button>
@@ -148,49 +203,35 @@ function ReplaySettingsForm({ initial }: { initial: ReplaySettingsType }) {
           </p>
         </div>
 
-        {/* Limits */}
+        {/* Max Duration (per-domain) */}
         <div className="rounded-lg border p-4 space-y-4">
           <div className="font-medium">Limits</div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium">Max recording duration</label>
-              <select
-                value={form.max_duration_sec}
-                onChange={e => setForm(f => ({ ...f, max_duration_sec: Number(e.target.value) }))}
-                className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
-              >
-                <option value={300}>5 minutes</option>
-                <option value={600}>10 minutes</option>
-                <option value={1800}>30 minutes</option>
-                <option value={3600}>1 hour</option>
-                <option value={7200}>2 hours</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-sm font-medium">Storage quota</label>
-              <select
-                value={form.storage_quota_mb}
-                onChange={e => setForm(f => ({ ...f, storage_quota_mb: Number(e.target.value) }))}
-                className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
-              >
-                <option value={1024}>1 GB</option>
-                <option value={2048}>2 GB</option>
-                <option value={5120}>5 GB</option>
-                <option value={10240}>10 GB</option>
-                <option value={20480}>20 GB</option>
-                <option value={51200}>50 GB</option>
-              </select>
-            </div>
+          <div>
+            <label className="text-sm font-medium">
+              Max recording duration
+              <ScopeIndicator scope={getScope('replay_max_duration_sec')} />
+            </label>
+            <select
+              value={getNumber('replay_max_duration_sec', 1800)}
+              onChange={e => setNum('replay_max_duration_sec', Number(e.target.value))}
+              className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
+            >
+              <option value={300}>5 minutes</option>
+              <option value={600}>10 minutes</option>
+              <option value={1800}>30 minutes</option>
+              <option value={3600}>1 hour</option>
+              <option value={7200}>2 hours</option>
+            </select>
           </div>
         </div>
 
         <button
           onClick={handleSave}
-          disabled={updateMutation.isPending}
+          disabled={updateSettings.isPending || !hasChanges}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
         >
           <Save className="h-4 w-4" />
-          {updateMutation.isPending ? 'Saving...' : 'Save Settings'}
+          {updateSettings.isPending ? 'Saving...' : 'Save Settings'}
         </button>
       </div>
     </div>
@@ -198,17 +239,28 @@ function ReplaySettingsForm({ initial }: { initial: ReplaySettingsType }) {
 }
 
 function ReplaySettingsContent() {
-  const { data: settings, isLoading } = useReplaySettings()
+  const selectedDomainId = useDomainStore(s => s.selectedDomainId)
 
-  if (isLoading || !settings) {
+  if (!selectedDomainId) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
+      <div className="p-6 max-w-2xl mx-auto">
+        <div className="flex items-center gap-3 mb-6">
+          <Link to="/replays" className="p-1.5 rounded-md hover:bg-muted transition-colors">
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold">Session Replay Settings</h1>
+            <p className="text-muted-foreground">Configure recording behavior and privacy</p>
+          </div>
+        </div>
+        <div className="rounded-lg border p-8 text-center text-muted-foreground">
+          Select a property from the sidebar to configure replay settings.
+        </div>
       </div>
     )
   }
 
-  return <ReplaySettingsForm initial={settings} />
+  return <ReplaySettingsForm />
 }
 
 export function ReplaySettings() {

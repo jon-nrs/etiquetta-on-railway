@@ -11,6 +11,7 @@ import {
 } from '../hooks/useAnalyticsQueries'
 import { FeatureGate } from '../components/FeatureGate'
 import { useLicense } from '../hooks/useLicenseQuery'
+import { useDomainStore } from '../stores/useDomainStore'
 import type { AdConnection, AdProvider } from '../lib/types'
 import {
   Plus,
@@ -24,6 +25,16 @@ import {
   Cable,
   KeyRound,
 } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../components/ui/alert-dialog'
 
 const PROVIDER_META: Record<string, { color: string; logo: string }> = {
   google_ads: { color: 'bg-blue-500', logo: 'G' },
@@ -185,14 +196,39 @@ function ConnectionCard({
   )
 }
 
+function MaxReachedDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <AlertDialog open onOpenChange={(open) => { if (!open) onClose() }}>
+      <AlertDialogContent size="sm">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Connection limit reached</AlertDialogTitle>
+          <AlertDialogDescription>
+            You've reached the connection limit for your plan. Upgrade to Pro for unlimited connections.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction asChild>
+            <a
+              href="https://etiquetta.com/#pricing"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View plans <ExternalLink className="h-3 w-3" />
+            </a>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
 function AddConnectionDialog({
   providers,
-  maxReached,
   onAdd,
   onClose,
 }: {
   providers: AdProvider[]
-  maxReached: boolean
   onAdd: (provider: string, name: string, accountId: string, refreshToken: string) => void
   onClose: () => void
 }) {
@@ -212,131 +248,113 @@ function AddConnectionDialog({
       <div className="bg-card rounded-lg border border-border shadow-lg w-full max-w-md p-6">
         <h2 className="text-lg font-semibold text-foreground mb-4">Add Connection</h2>
 
-        {maxReached ? (
-          <div className="text-center py-4">
-            <AlertCircle className="h-8 w-8 text-amber-500 mx-auto mb-2" />
-            <p className="text-sm text-muted-foreground">
-              You've reached the connection limit for your plan.
-              Upgrade to Pro for unlimited connections.
-            </p>
-            <a
-              href="https://etiquetta.com/pricing"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 inline-flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:underline"
-            >
-              View plans <ExternalLink className="h-3 w-3" />
-            </a>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-foreground mb-1.5 block">Provider</label>
+            <div className="grid grid-cols-1 gap-2">
+              {providers.map((p) => {
+                const meta = PROVIDER_META[p.name] ?? { color: 'bg-zinc-500', logo: '?' }
+                return (
+                  <button
+                    key={p.name}
+                    type="button"
+                    disabled={!p.available}
+                    onClick={() => setSelectedProvider(p.name)}
+                    className={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
+                      selectedProvider === p.name
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                        : 'border-border hover:bg-muted'
+                    } ${!p.available ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
+                    <div className={`h-8 w-8 rounded ${meta.color} flex items-center justify-center text-white font-bold text-xs`}>
+                      {meta.logo}
+                    </div>
+                    <div className="flex-1">
+                      <span className="text-sm font-medium">{p.display_name}</span>
+                      {!p.available && (
+                        <span className="ml-2 text-xs text-muted-foreground">Coming soon</span>
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
           </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-foreground mb-1.5 block">Provider</label>
-              <div className="grid grid-cols-1 gap-2">
-                {providers.map((p) => {
-                  const meta = PROVIDER_META[p.name] ?? { color: 'bg-zinc-500', logo: '?' }
-                  return (
-                    <button
-                      key={p.name}
-                      type="button"
-                      disabled={!p.available}
-                      onClick={() => setSelectedProvider(p.name)}
-                      className={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
-                        selectedProvider === p.name
-                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                          : 'border-border hover:bg-muted'
-                      } ${!p.available ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-                    >
-                      <div className={`h-8 w-8 rounded ${meta.color} flex items-center justify-center text-white font-bold text-xs`}>
-                        {meta.logo}
-                      </div>
-                      <div className="flex-1">
-                        <span className="text-sm font-medium">{p.display_name}</span>
-                        {!p.available && (
-                          <span className="ml-2 text-xs text-muted-foreground">Coming soon</span>
-                        )}
-                      </div>
-                    </button>
-                  )
-                })}
+
+          {selectedProvider && (
+            <>
+              <div>
+                <label className="text-sm font-medium text-foreground mb-1.5 block">
+                  Connection Name
+                </label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. My Google Ads Account"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
               </div>
-            </div>
-
-            {selectedProvider && (
-              <>
-                <div>
-                  <label className="text-sm font-medium text-foreground mb-1.5 block">
-                    Connection Name
-                  </label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. My Google Ads Account"
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-foreground mb-1.5 block">
-                    Account ID <span className="text-muted-foreground">(optional)</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={accountId}
-                    onChange={(e) => setAccountId(e.target.value)}
-                    placeholder="e.g. 123-456-7890"
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-foreground mb-1.5 block">
-                    Refresh Token <span className="text-muted-foreground">(optional — can add later)</span>
-                  </label>
-                  <textarea
-                    value={refreshToken}
-                    onChange={(e) => setRefreshToken(e.target.value)}
-                    placeholder={
-                      selectedProvider === 'meta_ads'
-                        ? 'Paste your Meta access token (System User or long-lived)'
-                        : selectedProvider === 'microsoft_ads'
-                          ? 'Paste your Microsoft OAuth refresh token'
-                          : 'Paste your Google OAuth refresh token'
-                    }
-                    rows={2}
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    See Settings &rarr;{' '}
-                    {selectedProvider === 'meta_ads'
-                      ? 'Meta Ads'
+              <div>
+                <label className="text-sm font-medium text-foreground mb-1.5 block">
+                  Account ID <span className="text-muted-foreground">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={accountId}
+                  onChange={(e) => setAccountId(e.target.value)}
+                  placeholder="e.g. 123-456-7890"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-foreground mb-1.5 block">
+                  Refresh Token <span className="text-muted-foreground">(optional — can add later)</span>
+                </label>
+                <textarea
+                  value={refreshToken}
+                  onChange={(e) => setRefreshToken(e.target.value)}
+                  placeholder={
+                    selectedProvider === 'meta_ads'
+                      ? 'Paste your Meta access token (System User or long-lived)'
                       : selectedProvider === 'microsoft_ads'
-                        ? 'Microsoft Ads'
-                        : 'Google Ads'}{' '}
-                    for instructions on obtaining a token.
-                  </p>
-                </div>
-              </>
-            )}
+                        ? 'Paste your Microsoft OAuth refresh token'
+                        : 'Paste your Google OAuth refresh token'
+                  }
+                  rows={2}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  See Settings &rarr;{' '}
+                  {selectedProvider === 'meta_ads'
+                    ? 'Meta Ads'
+                    : selectedProvider === 'microsoft_ads'
+                      ? 'Microsoft Ads'
+                      : 'Google Ads'}{' '}
+                  for instructions on obtaining a token.
+                </p>
+              </div>
+            </>
+          )}
 
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-md px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={!selectedProvider || !name}
-                className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                Add Connection
-              </button>
-            </div>
-          </form>
-        )}
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!selectedProvider || !name}
+              className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              Add Connection
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   )
@@ -399,7 +417,9 @@ function AttributionTable() {
 
 function ConnectionsContent() {
   const [showAdd, setShowAdd] = useState(false)
-  const { data: connectionsList, isLoading: connectionsLoading } = useConnections()
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const selectedDomainId = useDomainStore(s => s.selectedDomainId)
+  const { data: connectionsList, isLoading: connectionsLoading } = useConnections(selectedDomainId)
   const { data: providersList } = useProviders()
   const createConnection = useCreateConnection()
   const deleteConnection = useDeleteConnection()
@@ -416,6 +436,7 @@ function ConnectionsContent() {
         provider,
         name,
         account_id: accountId,
+        domain_id: selectedDomainId || undefined,
         refresh_token: refreshToken || undefined,
       },
       {
@@ -428,11 +449,13 @@ function ConnectionsContent() {
     )
   }
 
-  const handleDelete = (id: string) => {
-    if (!confirm('Delete this connection and all its synced data?')) return
-    deleteConnection.mutate(id, {
-      onSuccess: () => toast.success('Connection deleted'),
-      onError: (err) => toast.error(`Failed to delete: ${err.message}`),
+  const handleDelete = (id: string) => setDeleteTarget(id)
+
+  const confirmDelete = () => {
+    if (!deleteTarget) return
+    deleteConnection.mutate(deleteTarget, {
+      onSuccess: () => { toast.success('Connection deleted'); setDeleteTarget(null) },
+      onError: (err) => { toast.error(`Failed to delete: ${err.message}`); setDeleteTarget(null) },
     })
   }
 
@@ -502,14 +525,34 @@ function ConnectionsContent() {
       </section>
 
       {/* Add connection dialog */}
-      {showAdd && providersList && (
+      {showAdd && maxReached && (
+        <MaxReachedDialog onClose={() => setShowAdd(false)} />
+      )}
+      {showAdd && !maxReached && providersList && (
         <AddConnectionDialog
           providers={providersList}
-          maxReached={maxReached}
           onAdd={handleAdd}
           onClose={() => setShowAdd(false)}
         />
       )}
+
+      {/* Delete confirmation */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete connection</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this connection and all its synced data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={confirmDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

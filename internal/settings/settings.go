@@ -33,19 +33,41 @@ var sensitiveKeys = map[string]bool{
 	"microsoft_ads_developer_token": true,
 }
 
+// domainSettingsKeys are keys that can be overridden per domain
+var domainSettingsKeys = map[string]bool{
+	"track_performance":       true,
+	"track_errors":            true,
+	"respect_dnt":             true,
+	"session_timeout_minutes": true,
+	"data_retention_days":     true,
+	"replay_enabled":          true,
+	"replay_sample_rate":      true,
+	"replay_mask_text":        true,
+	"replay_mask_inputs":      true,
+	"replay_max_duration_sec": true,
+	"conversion_event":        true,
+}
+
+// IsDomainScopedKey returns true if the key can be overridden per domain
+func IsDomainScopedKey(key string) bool {
+	return domainSettingsKeys[key]
+}
+
 // Service manages application settings stored in the database
 type Service struct {
-	db        *sql.DB
-	cache     map[string]string
-	cacheMu   sync.RWMutex
-	masterKey []byte
+	db          *sql.DB
+	cache       map[string]string
+	domainCache map[string]map[string]string
+	cacheMu     sync.RWMutex
+	masterKey   []byte
 }
 
 // New creates a new settings service
 func New(db *sql.DB) *Service {
 	s := &Service{
-		db:    db,
-		cache: make(map[string]string),
+		db:          db,
+		cache:       make(map[string]string),
+		domainCache: make(map[string]map[string]string),
 	}
 	return s
 }
@@ -234,6 +256,218 @@ func (s *Service) GetAllMasked() (map[string]string, error) {
 	return settings, nil
 }
 
+// GetForDomain retrieves a setting for a specific domain, falling back to the global value
+func (s *Service) GetForDomain(domainID, key string) (string, error) {
+	if domainID == "" {
+		return s.Get(key)
+	}
+
+	// Check domain cache
+	s.cacheMu.RLock()
+	if dc, ok := s.domainCache[domainID]; ok {
+		if val, ok := dc[key]; ok {
+			s.cacheMu.RUnlock()
+			return val, nil
+		}
+	}
+	s.cacheMu.RUnlock()
+
+	// Query domain_settings
+	var value string
+	err := s.db.QueryRow("SELECT value FROM domain_settings WHERE domain_id = ? AND key = ?", domainID, key).Scan(&value)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// Fall back to global setting
+			return s.Get(key)
+		}
+		return "", err
+	}
+
+	// Cache the domain-specific value
+	s.cacheMu.Lock()
+	if s.domainCache[domainID] == nil {
+		s.domainCache[domainID] = make(map[string]string)
+	}
+	s.domainCache[domainID][key] = value
+	s.cacheMu.Unlock()
+
+	return value, nil
+}
+
+// GetForDomainWithDefault retrieves a domain setting with a default fallback
+func (s *Service) GetForDomainWithDefault(domainID, key, defaultValue string) string {
+	val, err := s.GetForDomain(domainID, key)
+	if err != nil || val == "" {
+		return defaultValue
+	}
+	return val
+}
+
+// GetDomainInt retrieves a domain setting as an integer
+func (s *Service) GetDomainInt(domainID, key string, defaultValue int) int {
+	val, err := s.GetForDomain(domainID, key)
+	if err != nil || val == "" {
+		return defaultValue
+	}
+	i, err := strconv.Atoi(val)
+	if err != nil {
+		return defaultValue
+	}
+	return i
+}
+
+// GetDomainBool retrieves a domain setting as a boolean
+func (s *Service) GetDomainBool(domainID, key string, defaultValue bool) bool {
+	val, err := s.GetForDomain(domainID, key)
+	if err != nil || val == "" {
+		return defaultValue
+	}
+	return val == "true" || val == "1" || val == "yes"
+}
+
+// SetForDomain stores a setting for a specific domain
+func (s *Service) SetForDomain(domainID, key, value string) error {
+	now := time.Now().UnixMilli()
+	_, err := s.db.Exec(
+		"INSERT INTO domain_settings (domain_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (domain_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at",
+		domainID, key, value, now,
+	)
+	if err != nil {
+		return err
+	}
+
+	s.cacheMu.Lock()
+	if s.domainCache[domainID] == nil {
+		s.domainCache[domainID] = make(map[string]string)
+	}
+	s.domainCache[domainID][key] = value
+	s.cacheMu.Unlock()
+
+	return nil
+}
+
+// SetManyForDomain stores multiple settings for a specific domain
+func (s *Service) SetManyForDomain(domainID string, settings map[string]string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now().UnixMilli()
+	stmt, err := tx.Prepare("INSERT INTO domain_settings (domain_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (domain_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for key, value := range settings {
+		if _, err := stmt.Exec(domainID, key, value, now); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	s.cacheMu.Lock()
+	if s.domainCache[domainID] == nil {
+		s.domainCache[domainID] = make(map[string]string)
+	}
+	for key, value := range settings {
+		s.domainCache[domainID][key] = value
+	}
+	s.cacheMu.Unlock()
+
+	return nil
+}
+
+// GetAllForDomain returns merged settings for a domain (global defaults + domain overrides).
+// The returned map includes a "scope:" prefixed key for each domain-scoped setting indicating
+// whether the value is "global" (inherited) or "domain" (overridden).
+func (s *Service) GetAllForDomain(domainID string) (map[string]string, error) {
+	// Start with global settings
+	global, err := s.GetAll()
+	if err != nil {
+		return nil, err
+	}
+
+	// Query domain-specific overrides
+	rows, err := s.db.Query("SELECT key, value FROM domain_settings WHERE domain_id = ?", domainID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	overrides := make(map[string]string)
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			continue
+		}
+		overrides[key] = value
+	}
+
+	// Merge: domain overrides take precedence
+	result := make(map[string]string)
+	for key, value := range global {
+		result[key] = value
+		if domainSettingsKeys[key] {
+			if _, overridden := overrides[key]; overridden {
+				result[key] = overrides[key]
+				result["scope:"+key] = "domain"
+			} else {
+				result["scope:"+key] = "global"
+			}
+		}
+	}
+
+	// Include any domain keys not in global
+	for key, value := range overrides {
+		if _, exists := result[key]; !exists {
+			result[key] = value
+			result["scope:"+key] = "domain"
+		}
+	}
+
+	return result, nil
+}
+
+// DeleteForDomain removes a domain-specific setting override (reverts to global default)
+func (s *Service) DeleteForDomain(domainID, key string) error {
+	_, err := s.db.Exec("DELETE FROM domain_settings WHERE domain_id = ? AND key = ?", domainID, key)
+	if err != nil {
+		return err
+	}
+
+	s.cacheMu.Lock()
+	if dc, ok := s.domainCache[domainID]; ok {
+		delete(dc, key)
+	}
+	s.cacheMu.Unlock()
+
+	return nil
+}
+
+// CopyDefaultsToDomain copies global defaults for all domain-scoped keys to a new domain
+func (s *Service) CopyDefaultsToDomain(domainID string) error {
+	now := time.Now().UnixMilli()
+	_, err := s.db.Exec(`
+		INSERT INTO domain_settings (domain_id, key, value, updated_at)
+		SELECT ?, s.key, s.value, ?
+		FROM settings s
+		WHERE s.key IN (
+			'track_performance', 'track_errors', 'respect_dnt',
+			'session_timeout_minutes', 'data_retention_days',
+			'replay_enabled', 'replay_sample_rate', 'replay_mask_text',
+			'replay_mask_inputs', 'replay_max_duration_sec'
+		)
+		ON CONFLICT (domain_id, key) DO NOTHING
+	`, domainID, now)
+	return err
+}
+
 // Delete removes a setting
 func (s *Service) Delete(key string) error {
 	_, err := s.db.Exec("DELETE FROM settings WHERE key = ?", key)
@@ -252,6 +486,7 @@ func (s *Service) Delete(key string) error {
 func (s *Service) ClearCache() {
 	s.cacheMu.Lock()
 	s.cache = make(map[string]string)
+	s.domainCache = make(map[string]map[string]string)
 	s.cacheMu.Unlock()
 }
 

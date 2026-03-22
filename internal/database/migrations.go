@@ -579,6 +579,102 @@ func (db *DB) Migrate() error {
 				ON CONFLICT (key) DO NOTHING;
 			`,
 		},
+		{
+			version: 20,
+			sql: `
+				-- API keys for external integrations (WordPress, etc.)
+				CREATE TABLE IF NOT EXISTS api_keys (
+					id VARCHAR PRIMARY KEY,
+					user_id VARCHAR NOT NULL,
+					name VARCHAR NOT NULL,
+					key_hash VARCHAR NOT NULL,
+					key_prefix VARCHAR NOT NULL,
+					created_at BIGINT NOT NULL,
+					last_used_at BIGINT,
+					revoked_at BIGINT
+				);
+
+				CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
+				CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+			`,
+		},
+		{
+			version: 21,
+			sql: `
+				-- Per-domain settings (overrides global settings per property)
+				CREATE TABLE IF NOT EXISTS domain_settings (
+					domain_id VARCHAR NOT NULL,
+					key VARCHAR NOT NULL,
+					value VARCHAR NOT NULL,
+					updated_at BIGINT NOT NULL,
+					PRIMARY KEY (domain_id, key)
+				);
+
+				CREATE INDEX IF NOT EXISTS idx_domain_settings_domain ON domain_settings(domain_id);
+
+				-- Copy existing global tracking/replay settings to all active domains
+				INSERT INTO domain_settings (domain_id, key, value, updated_at)
+				SELECT d.id, s.key, s.value, s.updated_at
+				FROM domains d, settings s
+				WHERE d.is_active = 1
+				AND s.key IN (
+					'track_performance', 'track_errors', 'respect_dnt',
+					'session_timeout_minutes', 'data_retention_days',
+					'replay_enabled', 'replay_sample_rate', 'replay_mask_text',
+					'replay_mask_inputs', 'replay_max_duration_sec'
+				)
+				ON CONFLICT (domain_id, key) DO NOTHING;
+			`,
+		},
+		{
+			version: 22,
+			sql: `
+				-- Per-domain user access control
+				CREATE TABLE IF NOT EXISTS domain_access (
+					user_id VARCHAR NOT NULL,
+					domain_id VARCHAR NOT NULL,
+					created_at BIGINT NOT NULL,
+					PRIMARY KEY (user_id, domain_id)
+				);
+
+				CREATE INDEX IF NOT EXISTS idx_domain_access_user ON domain_access(user_id);
+				CREATE INDEX IF NOT EXISTS idx_domain_access_domain ON domain_access(domain_id);
+
+				-- Grant all existing non-admin users access to all existing domains
+				INSERT INTO domain_access (user_id, domain_id, created_at)
+				SELECT u.id, d.id, epoch_ms(now())
+				FROM users u, domains d
+				WHERE u.role != 'admin' AND d.is_active = 1
+				ON CONFLICT (user_id, domain_id) DO NOTHING;
+			`,
+		},
+		{
+			version: 23,
+			sql: `
+				-- Add domain_id to ad_connections for per-property connections
+				ALTER TABLE ad_connections ADD COLUMN domain_id VARCHAR;
+				CREATE INDEX IF NOT EXISTS idx_ad_connections_domain ON ad_connections(domain_id);
+			`,
+		},
+		{
+			version: 24,
+			sql: `
+				CREATE TABLE IF NOT EXISTS annotations (
+					id VARCHAR PRIMARY KEY,
+					domain_id VARCHAR NOT NULL,
+					date VARCHAR NOT NULL,
+					title VARCHAR NOT NULL,
+					description VARCHAR DEFAULT '',
+					category VARCHAR NOT NULL DEFAULT 'other',
+					source VARCHAR NOT NULL DEFAULT 'manual',
+					created_by VARCHAR,
+					created_at BIGINT NOT NULL,
+					updated_at BIGINT NOT NULL
+				);
+				CREATE INDEX IF NOT EXISTS idx_annotations_domain_date ON annotations(domain_id, date);
+				CREATE INDEX IF NOT EXISTS idx_annotations_category ON annotations(category);
+			`,
+		},
 	}
 
 	for _, m := range migrations {

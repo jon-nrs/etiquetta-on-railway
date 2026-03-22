@@ -194,17 +194,60 @@ func (h *Handlers) ExportEvents(w http.ResponseWriter, r *http.Request) {
 
 // GetFraudSummary returns fraud detection summary
 func (h *Handlers) GetFraudSummary(w http.ResponseWriter, r *http.Request) {
-	days := getDaysParam(r, 7)
+	startMs, endMs := getDateRangeParams(r, 7)
 	domain := getDomainParam(r)
 
+	// Look up conversion event from domain settings
+	conversionEvent := ""
+	if domain != "" {
+		svc := newSettingsService(h)
+		var domainID string
+		h.db.Conn().QueryRow("SELECT id FROM domains WHERE domain = ?", domain).Scan(&domainID)
+		if domainID != "" {
+			conversionEvent = svc.GetForDomainWithDefault(domainID, "conversion_event", "")
+		}
+	}
+
 	detector := adfraud.NewDetector(h.db.Conn())
-	summary, err := detector.GetFraudSummary(domain, days)
+	summary, err := detector.GetFraudSummary(domain, startMs, endMs, conversionEvent)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	writeJSON(w, http.StatusOK, summary)
+}
+
+// GetAvailableEventNames returns distinct custom event names for conversion event selection
+func (h *Handlers) GetAvailableEventNames(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	domain := getDomainParam(r)
+
+	query := `SELECT DISTINCT event_name FROM events
+		WHERE event_type = 'custom' AND event_name IS NOT NULL AND event_name != ''`
+	var args []interface{}
+	if domain != "" {
+		query += " AND domain = ?"
+		args = append(args, domain)
+	}
+	query += " ORDER BY event_name LIMIT 100"
+
+	rows, err := h.db.Conn().QueryContext(ctx, query, args...)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	names := make([]string, 0)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err == nil {
+			names = append(names, name)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, names)
 }
 
 // GetSourceQuality returns traffic quality per source

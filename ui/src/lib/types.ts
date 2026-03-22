@@ -1,3 +1,12 @@
+export interface ApiKey {
+  id: string
+  name: string
+  key_prefix: string
+  created_at: number
+  last_used_at: number | null
+  revoked_at: number | null
+}
+
 export interface OverviewStats {
   total_events: number
   unique_visitors: number
@@ -187,13 +196,27 @@ export interface CalendarHeatmapPoint {
 }
 
 // Ad Fraud types
+export interface FraudSignal {
+  type: string
+  description: string
+  count: number
+  severity: 'low' | 'medium' | 'high'
+}
+
 export interface FraudSummary {
   total_clicks: number
-  invalid_clicks: number
+  bot_clicks: number
+  suspicious_clicks: number
+  human_clicks: number
   invalid_rate: number
+  datacenter_clicks: number
+  total_spend: number
   wasted_spend: number
-  datacenter_traffic: number
-  suspicious_sessions: number
+  real_cpc: number | null
+  real_cpa: number | null
+  conversions: number
+  conversion_event: string
+  signals: FraudSignal[]
 }
 
 export interface SourceQuality {
@@ -644,6 +667,22 @@ export interface ReplayListResponse {
 export interface ReplayData {
   session_id: string
   events: unknown[]
+  metadata: SessionRecording
+}
+
+export interface SessionEvent {
+  id: string
+  timestamp: number
+  event_type: string
+  event_name: string
+  url: string
+  path: string
+  page_title: string
+  referrer_url: string
+  utm_source: string
+  utm_medium: string
+  utm_campaign: string
+  props: string
 }
 
 export interface ReplayStats {
@@ -661,4 +700,30 @@ export interface ReplaySettings {
   mask_inputs: boolean
   max_duration_sec: number
   storage_quota_mb: number
+}
+
+// Annotation types
+export type AnnotationCategory = 'deployment' | 'analytics' | 'performance' | 'consent' | 'ads' | 'content' | 'other'
+
+export interface Annotation {
+  id: string
+  domain_id: string
+  date: string
+  title: string
+  description: string
+  category: AnnotationCategory
+  source: 'manual' | 'automatic'
+  created_by: string
+  created_at: number
+  updated_at: number
+}
+
+export const ANNOTATION_CATEGORIES: Record<AnnotationCategory, { label: string; color: string }> = {
+  deployment:  { label: 'Deployment',  color: '#3b82f6' },
+  analytics:   { label: 'Analytics',   color: '#8b5cf6' },
+  performance: { label: 'Performance', color: '#f59e0b' },
+  consent:     { label: 'Consent',     color: '#10b981' },
+  ads:         { label: 'Ads',         color: '#ef4444' },
+  content:     { label: 'Content',     color: '#06b6d4' },
+  other:       { label: 'Other',       color: '#6b7280' },
 }

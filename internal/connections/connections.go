@@ -22,6 +22,7 @@ type Connection struct {
 	Provider        string            `json:"provider"`
 	Name            string            `json:"name"`
 	AccountID       string            `json:"account_id"`
+	DomainID        string            `json:"domain_id"`
 	Status          string            `json:"status"`
 	LastSyncAt      *int64            `json:"last_sync_at"`
 	LastError       *string           `json:"last_error"`
@@ -59,11 +60,27 @@ func NewStore(db *database.DB, secretKey string) *Store {
 
 // List returns all connections (without decrypted tokens)
 func (s *Store) List() ([]Connection, error) {
-	rows, err := s.db.Conn().Query(`
-		SELECT id, provider, name, account_id, status, last_sync_at, last_error, config, created_by, created_at, updated_at
+	return s.listQuery("")
+}
+
+// ListByDomain returns connections for a specific domain
+func (s *Store) ListByDomain(domainID string) ([]Connection, error) {
+	return s.listQuery(domainID)
+}
+
+func (s *Store) listQuery(domainID string) ([]Connection, error) {
+	query := `
+		SELECT id, provider, name, account_id, domain_id, status, last_sync_at, last_error, config, created_by, created_at, updated_at
 		FROM ad_connections
-		ORDER BY created_at DESC
-	`)
+	`
+	var args []interface{}
+	if domainID != "" {
+		query += " WHERE domain_id = ?"
+		args = append(args, domainID)
+	}
+	query += " ORDER BY created_at DESC"
+
+	rows, err := s.db.Conn().Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list connections: %w", err)
 	}
@@ -76,9 +93,10 @@ func (s *Store) List() ([]Connection, error) {
 		var lastErr sql.NullString
 		var configJSON sql.NullString
 		var accountID sql.NullString
+		var domainIDVal sql.NullString
 		var createdBy sql.NullString
 
-		if err := rows.Scan(&c.ID, &c.Provider, &c.Name, &accountID, &c.Status, &lastSync, &lastErr, &configJSON, &createdBy, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.Provider, &c.Name, &accountID, &domainIDVal, &c.Status, &lastSync, &lastErr, &configJSON, &createdBy, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan connection: %w", err)
 		}
 
@@ -90,6 +108,9 @@ func (s *Store) List() ([]Connection, error) {
 		}
 		if accountID.Valid {
 			c.AccountID = accountID.String
+		}
+		if domainIDVal.Valid {
+			c.DomainID = domainIDVal.String
 		}
 		if createdBy.Valid {
 			c.CreatedBy = createdBy.String
@@ -116,12 +137,13 @@ func (s *Store) Get(id string) (*Connection, error) {
 	var lastErr sql.NullString
 	var configJSON sql.NullString
 	var accountID sql.NullString
+	var domainIDVal sql.NullString
 	var createdBy sql.NullString
 
 	err := s.db.Conn().QueryRow(`
-		SELECT id, provider, name, account_id, status, last_sync_at, last_error, config, created_by, created_at, updated_at
+		SELECT id, provider, name, account_id, domain_id, status, last_sync_at, last_error, config, created_by, created_at, updated_at
 		FROM ad_connections WHERE id = ?
-	`, id).Scan(&c.ID, &c.Provider, &c.Name, &accountID, &c.Status, &lastSync, &lastErr, &configJSON, &createdBy, &c.CreatedAt, &c.UpdatedAt)
+	`, id).Scan(&c.ID, &c.Provider, &c.Name, &accountID, &domainIDVal, &c.Status, &lastSync, &lastErr, &configJSON, &createdBy, &c.CreatedAt, &c.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get connection: %w", err)
 	}
@@ -134,6 +156,9 @@ func (s *Store) Get(id string) (*Connection, error) {
 	}
 	if accountID.Valid {
 		c.AccountID = accountID.String
+	}
+	if domainIDVal.Valid {
+		c.DomainID = domainIDVal.String
 	}
 	if createdBy.Valid {
 		c.CreatedBy = createdBy.String
@@ -171,9 +196,9 @@ func (s *Store) Create(c *Connection, tokens *providers.TokenSet) error {
 	now := time.Now().UnixMilli()
 
 	_, err = s.db.Conn().Exec(`
-		INSERT INTO ad_connections (id, provider, name, account_id, encrypted_tokens, status, config, created_by, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, c.ID, c.Provider, c.Name, c.AccountID, encrypted, c.Status, string(configJSON), c.CreatedBy, now, now)
+		INSERT INTO ad_connections (id, provider, name, account_id, domain_id, encrypted_tokens, status, config, created_by, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, c.ID, c.Provider, c.Name, c.AccountID, c.DomainID, encrypted, c.Status, string(configJSON), c.CreatedBy, now, now)
 	if err != nil {
 		return fmt.Errorf("insert connection: %w", err)
 	}
