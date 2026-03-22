@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { fetchAPI } from '@/lib/api'
 import { Navigate } from 'react-router-dom'
@@ -8,31 +8,36 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Activity, Database, Loader2, Brain } from 'lucide-react'
+import { Activity, Database, Loader2, Brain, Info } from 'lucide-react'
 import { toast } from 'sonner'
 import { useLicense } from '@/hooks/useLicenseQuery'
+import { useDomainStore } from '@/stores/useDomainStore'
+import { useDomainSettings, useUpdateDomainSettings } from '@/hooks/useDomainSettings'
 import { SettingsLayout } from './SettingsLayout'
 import type { AICrawlerSettings } from '@/lib/types'
+
+function ScopeIndicator({ scope }: { scope: string | undefined }) {
+  if (scope !== 'global') return null
+  return (
+    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground ml-2">
+      <Info className="h-3 w-3" />
+      Using default
+    </span>
+  )
+}
 
 export function TrackingSettings() {
   const { isAdmin } = useAuth()
   const { license } = useLicense()
-  const [settings, setSettings] = useState<Record<string, string> | null>(null)
+  const selectedDomainId = useDomainStore(s => s.selectedDomainId)
+  const { data: settings, isLoading } = useDomainSettings(selectedDomainId)
+  const updateSettings = useUpdateDomainSettings(selectedDomainId)
   const [edited, setEdited] = useState<Record<string, string>>({})
-  const [saving, setSaving] = useState(false)
 
   const hasChanges = useMemo(() => Object.keys(edited).length > 0, [edited])
 
-  useEffect(() => {
-    if (isAdmin) {
-      fetchAPI<Record<string, string>>('/api/settings')
-        .then(setSettings)
-        .catch(() => toast.error('Failed to load settings'))
-    }
-  }, [isAdmin])
-
   if (!isAdmin) {
-    return <Navigate to="/settings/domains" replace />
+    return <Navigate to="/settings/properties" replace />
   }
 
   function getBool(key: string, fallback: boolean): boolean {
@@ -53,27 +58,46 @@ export function TrackingSettings() {
     setEdited(prev => ({ ...prev, [key]: value }))
   }
 
+  function getScope(key: string): string | undefined {
+    return settings?.['scope:' + key]
+  }
+
   async function handleSave() {
     if (!hasChanges) return
-    setSaving(true)
-    try {
-      await fetchAPI('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(edited),
-      })
-      setSettings(prev => prev ? { ...prev, ...edited } : edited)
-      setEdited({})
-      toast.success('Tracking settings saved')
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to save settings')
-    } finally {
-      setSaving(false)
-    }
+    updateSettings.mutate(edited, {
+      onSuccess: () => setEdited({}),
+    })
+  }
+
+  if (!selectedDomainId) {
+    return (
+      <SettingsLayout title="Tracking" description="Configure data collection and privacy settings">
+        <Card>
+          <CardContent className="py-8">
+            <p className="text-center text-muted-foreground">
+              Select a property from the sidebar to configure tracking settings.
+            </p>
+          </CardContent>
+        </Card>
+      </SettingsLayout>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <SettingsLayout title="Tracking" description="Configure data collection and privacy settings">
+        <Card>
+          <CardContent className="py-8 flex items-center justify-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading settings...
+          </CardContent>
+        </Card>
+      </SettingsLayout>
+    )
   }
 
   return (
-    <SettingsLayout title="Tracking" description="Configure data collection and privacy settings">
+    <SettingsLayout title="Tracking" description="Configure data collection and privacy settings for this property">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -89,7 +113,10 @@ export function TrackingSettings() {
           {/* Track Performance */}
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <Label>Core Web Vitals</Label>
+              <Label>
+                Core Web Vitals
+                <ScopeIndicator scope={getScope('track_performance')} />
+              </Label>
               <p className="text-xs text-muted-foreground">
                 Collect LCP, FCP, CLS, INP, TTFB and page load times
               </p>
@@ -103,7 +130,10 @@ export function TrackingSettings() {
           {/* Track Errors */}
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <Label>JavaScript Errors</Label>
+              <Label>
+                JavaScript Errors
+                <ScopeIndicator scope={getScope('track_errors')} />
+              </Label>
               <p className="text-xs text-muted-foreground">
                 Capture JavaScript errors from tracked pages
               </p>
@@ -117,7 +147,10 @@ export function TrackingSettings() {
           {/* Respect DNT */}
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <Label>Honor Do Not Track</Label>
+              <Label>
+                Honor Do Not Track
+                <ScopeIndicator scope={getScope('respect_dnt')} />
+              </Label>
               <p className="text-xs text-muted-foreground">
                 Respect the DNT browser header. Many browsers enable this by default,
                 which may cause significant data loss. Not legally required.
@@ -132,7 +165,10 @@ export function TrackingSettings() {
           {/* Session Timeout */}
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <Label htmlFor="session_timeout">Session Timeout (minutes)</Label>
+              <Label htmlFor="session_timeout">
+                Session Timeout (minutes)
+                <ScopeIndicator scope={getScope('session_timeout_minutes')} />
+              </Label>
               <p className="text-xs text-muted-foreground">
                 Minutes of inactivity before a visitor session expires (default: 30)
               </p>
@@ -150,8 +186,8 @@ export function TrackingSettings() {
 
           {/* Save */}
           <div className="flex justify-end pt-4 border-t">
-            <Button onClick={handleSave} disabled={saving || !hasChanges}>
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            <Button onClick={handleSave} disabled={updateSettings.isPending || !hasChanges}>
+              {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Save Settings
             </Button>
           </div>
@@ -177,7 +213,10 @@ export function TrackingSettings() {
               <>
                 <div className="flex items-center justify-between">
                   <div className="space-y-0.5">
-                    <Label>Delete data older than</Label>
+                    <Label>
+                      Delete data older than
+                      <ScopeIndicator scope={getScope('data_retention_days')} />
+                    </Label>
                     <p className="text-xs text-muted-foreground">
                       {isPro
                         ? 'Choose how long to keep analytics data'
@@ -201,8 +240,8 @@ export function TrackingSettings() {
                 </div>
 
                 <div className="flex justify-end pt-4 border-t">
-                  <Button onClick={handleSave} disabled={saving || !hasChanges}>
-                    {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  <Button onClick={handleSave} disabled={updateSettings.isPending || !hasChanges}>
+                    {updateSettings.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Save Settings
                   </Button>
                 </div>
@@ -221,14 +260,14 @@ function AICrawlerCard() {
   const [crawlerSettings, setCrawlerSettings] = useState<AICrawlerSettings | null>(null)
   const [editedRules, setEditedRules] = useState<Record<string, 'allow' | 'block'> | null>(null)
   const [saving, setSaving] = useState(false)
+  const [loaded, setLoaded] = useState(false)
 
-  useEffect(() => {
+  if (!loaded) {
+    setLoaded(true)
     fetchAPI<AICrawlerSettings>('/api/settings/ai-crawlers')
-      .then((data) => {
-        setCrawlerSettings(data)
-      })
+      .then((data) => setCrawlerSettings(data))
       .catch(() => toast.error('Failed to load AI crawler settings'))
-  }, [])
+  }
 
   const currentRules = editedRules ?? crawlerSettings?.rules ?? {}
   const hasChanges = editedRules !== null

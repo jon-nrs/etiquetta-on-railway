@@ -12,9 +12,17 @@ import (
 	"github.com/caioricciuti/etiquetta/internal/connections/providers"
 )
 
-// ListConnections returns all ad platform connections
+// ListConnections returns ad platform connections, optionally filtered by domain
 func (h *Handlers) ListConnections(w http.ResponseWriter, r *http.Request) {
-	conns, err := h.connStore.List()
+	domainID := r.URL.Query().Get("domain_id")
+
+	var conns []connections.Connection
+	var err error
+	if domainID != "" {
+		conns, err = h.connStore.ListByDomain(domainID)
+	} else {
+		conns, err = h.connStore.List()
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list connections")
 		return
@@ -54,6 +62,7 @@ func (h *Handlers) CreateConnection(w http.ResponseWriter, r *http.Request) {
 		Provider     string            `json:"provider"`
 		Name         string            `json:"name"`
 		AccountID    string            `json:"account_id"`
+		DomainID     string            `json:"domain_id"`
 		Config       map[string]string `json:"config"`
 		RefreshToken string            `json:"refresh_token"`
 	}
@@ -85,6 +94,7 @@ func (h *Handlers) CreateConnection(w http.ResponseWriter, r *http.Request) {
 		Provider:  req.Provider,
 		Name:      req.Name,
 		AccountID: req.AccountID,
+		DomainID:  req.DomainID,
 		Status:    "pending",
 		Config:    req.Config,
 		CreatedBy: createdBy,

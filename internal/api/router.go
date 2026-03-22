@@ -91,6 +91,9 @@ func NewRouter(db *database.DB, enricher *enrichment.Enricher, licenseManager *l
 		migrateManager: migrateManager,
 	}
 
+	// Wire up API key validation so Bearer etq_... tokens work through RequireAuth
+	authMiddleware.SetAPIKeyValidator(h.ValidateAPIKey)
+
 	// Set the replay store for handlers
 	replayStore = replayMgr
 
@@ -177,6 +180,13 @@ func NewRouter(db *database.DB, enricher *enrichment.Enricher, licenseManager *l
 				r.Post("/settings/geoip/download", h.DownloadGeoIPDatabase)
 			})
 
+			// Per-domain settings (admin only)
+			r.Route("/settings/domain", func(r chi.Router) {
+				r.Use(authMiddleware.RequireAdmin)
+				r.Get("/{domainId}", h.GetDomainSettings)
+				r.Put("/{domainId}", h.UpdateDomainSettings)
+			})
+
 			// AI Crawler Settings (admin only)
 			r.Group(func(r chi.Router) {
 				r.Use(authMiddleware.RequireAdmin)
@@ -218,11 +228,22 @@ func NewRouter(db *database.DB, enricher *enrichment.Enricher, licenseManager *l
 			r.Get("/stats/calendar-heatmap", h.GetStatsCalendarHeatmap) // Calendar heatmap data
 			r.Get("/stats/compare", h.GetStatsCompare)                   // Period comparison
 
+			// API token management
+			r.Post("/tokens", h.CreateAPIToken)
+			r.Get("/tokens", h.ListAPITokens)
+			r.Delete("/tokens/{id}", h.RevokeAPIToken)
+
 			// Domain management
 			r.Get("/domains", h.ListDomains)
 			r.Post("/domains", h.CreateDomain)
 			r.Delete("/domains/{id}", h.DeleteDomain)
 			r.Get("/domains/{id}/snippet", h.GetDomainSnippet)
+
+			// Annotations
+			r.Get("/annotations", h.ListAnnotations)
+			r.Post("/annotations", h.CreateAnnotation)
+			r.Put("/annotations/{id}", h.UpdateAnnotation)
+			r.Delete("/annotations/{id}", h.DeleteAnnotation)
 
 			// Pro features - Web Vitals
 			r.Group(func(r chi.Router) {
@@ -246,6 +267,7 @@ func NewRouter(db *database.DB, enricher *enrichment.Enricher, licenseManager *l
 			r.Group(func(r chi.Router) {
 				r.Use(licensing.RequireFeature(licenseManager, licensing.FeatureAdFraud))
 				r.Get("/stats/fraud", h.GetFraudSummary)
+				r.Get("/stats/fraud/event-names", h.GetAvailableEventNames)
 				r.Get("/sources/quality", h.GetSourceQuality)
 				r.Get("/campaigns", h.ListCampaigns)
 				r.Post("/campaigns", h.CreateCampaign)
@@ -278,7 +300,6 @@ func NewRouter(db *database.DB, enricher *enrichment.Enricher, licenseManager *l
 				r.Get("/tagmanager/containers/{id}/export", h.ExportContainer)
 				r.Post("/tagmanager/containers/{id}/import", h.ImportContainer)
 				r.Post("/tagmanager/containers/{id}/preview-token", h.PreviewToken)
-				r.Get("/tagmanager/pick-proxy", h.PickProxy)
 
 				// Tag CRUD
 				r.Get("/tagmanager/containers/{cid}/tags", h.ListTags)
@@ -384,11 +405,25 @@ func NewRouter(db *database.DB, enricher *enrichment.Enricher, licenseManager *l
 				r.Get("/replays/stats", h.GetReplayStats)
 				r.Get("/replays/settings", h.GetReplaySettings)
 				r.Put("/replays/settings", h.UpdateReplaySettings)
+				r.Delete("/replays/batch", h.DeleteReplaysBatch)
 				r.Get("/replays/{sessionId}", h.GetReplay)
+				r.Get("/replays/{sessionId}/events", h.GetSessionEvents)
 				r.Delete("/replays/{sessionId}", h.DeleteReplay)
+			})
+
+			// Domain access management (admin only)
+			r.Group(func(r chi.Router) {
+				r.Use(authMiddleware.RequireAdmin)
+				r.Use(licensing.RequireFeature(licenseManager, licensing.FeatureMultiUser))
+				r.Get("/users/{id}/domains", h.GetUserDomains)
+				r.Put("/users/{id}/domains", h.UpdateUserDomains)
 			})
 		})
 	})
+
+	// Element Picker proxy (token-validated, no auth middleware needed)
+	r.Get("/api/tagmanager/pick-proxy", h.PickProxy)
+	r.With(RateLimit(200, time.Minute)).Get("/_etq_proxy/{token}/{scheme}/{host}/*", h.PickProxyResource)
 
 	// Serve static UI files from embedded filesystem
 	fileServer := http.FileServer(http.FS(uiFS))

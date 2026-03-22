@@ -307,6 +307,16 @@ export function useFraudSummary() {
   })
 }
 
+export function useAvailableEventNames() {
+  const { qs, enabled } = useBotParams()
+  return useQuery({
+    queryKey: ['fraud', 'event-names', qs],
+    queryFn: () => fetchAPI<string[]>(`/api/stats/fraud/event-names?${qs}`),
+    enabled,
+    staleTime: 60_000,
+  })
+}
+
 export function useSourceQuality() {
   const { qs, enabled } = useBotParams()
   return useQuery({
@@ -348,10 +358,11 @@ export function useDeleteCampaign() {
 
 // --- Ad Platform Connections ---
 
-export function useConnections() {
+export function useConnections(domainId?: string | null) {
+  const params = domainId ? `?domain_id=${domainId}` : ''
   return useQuery({
-    queryKey: ['connections'],
-    queryFn: () => fetchAPI<AdConnection[]>('/api/connections'),
+    queryKey: ['connections', domainId ?? 'all'],
+    queryFn: () => fetchAPI<AdConnection[]>(`/api/connections${params}`),
     retry: false,
     meta: { silent: true },
   })
@@ -368,7 +379,7 @@ export function useProviders() {
 export function useCreateConnection() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { provider: string; name: string; account_id?: string; refresh_token?: string; config?: Record<string, string> }) =>
+    mutationFn: (data: { provider: string; name: string; account_id?: string; domain_id?: string; refresh_token?: string; config?: Record<string, string> }) =>
       fetchAPI<AdConnection>('/api/connections', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

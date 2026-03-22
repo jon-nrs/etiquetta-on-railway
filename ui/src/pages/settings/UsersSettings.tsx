@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 import { useLicense } from '@/hooks/useLicenseQuery'
+import { useDomains } from '@/hooks/useDomains'
 import { fetchAPI, ApiError } from '@/lib/api'
 import { Navigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -15,7 +16,7 @@ import {
   SheetTitle,
   SheetFooter,
 } from '@/components/ui/sheet'
-import { Users as UsersIcon, Plus, Trash2, Loader2, Shield, Eye, AlertCircle, Pencil } from 'lucide-react'
+import { Users as UsersIcon, Plus, Trash2, Loader2, Shield, Eye, AlertCircle, Pencil, Globe } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   Select,
@@ -24,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Checkbox } from '@/components/ui/checkbox'
 import { SettingsLayout } from './SettingsLayout'
 
 interface User {
@@ -32,11 +34,13 @@ interface User {
   name: string
   role: 'admin' | 'viewer'
   created_at: number
+  domain_ids: string[]
 }
 
 export function UsersSettings() {
   const { user: currentUser, isAdmin } = useAuth()
   const { hasFeature, getLimit } = useLicense()
+  const { data: domains } = useDomains()
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -51,11 +55,12 @@ export function UsersSettings() {
     password: '',
     confirmPassword: '',
     role: 'viewer' as 'admin' | 'viewer',
+    domainIds: [] as string[],
   })
 
   // Edit user sheet state
   const [editingUser, setEditingUser] = useState<User | null>(null)
-  const [editForm, setEditForm] = useState({ name: '', role: '' as 'admin' | 'viewer', password: '' })
+  const [editForm, setEditForm] = useState({ name: '', role: '' as 'admin' | 'viewer', password: '', domainIds: [] as string[] })
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
@@ -86,7 +91,7 @@ export function UsersSettings() {
   }, [fetchUsers, isAdmin])
 
   if (!isAdmin) {
-    return <Navigate to="/settings/domains" replace />
+    return <Navigate to="/settings/properties" replace />
   }
 
   if (!hasFeature('multi_user')) {
@@ -107,7 +112,7 @@ export function UsersSettings() {
   }
 
   function openCreateSheet() {
-    setNewUser({ email: '', name: '', password: '', confirmPassword: '', role: 'viewer' })
+    setNewUser({ email: '', name: '', password: '', confirmPassword: '', role: 'viewer', domainIds: domains?.map(d => d.id) ?? [] })
     setCreateError(null)
     setCreateOpen(true)
   }
@@ -140,6 +145,7 @@ export function UsersSettings() {
           name: newUser.name,
           password: newUser.password,
           role: newUser.role,
+          domain_ids: newUser.role !== 'admin' ? newUser.domainIds : [],
         }),
       })
 
@@ -174,7 +180,7 @@ export function UsersSettings() {
 
   function openEditSheet(user: User) {
     setEditingUser(user)
-    setEditForm({ name: user.name || '', role: user.role, password: '' })
+    setEditForm({ name: user.name || '', role: user.role, password: '', domainIds: user.domain_ids ?? [] })
     setEditError(null)
   }
 
@@ -200,6 +206,15 @@ export function UsersSettings() {
           ...(editForm.password ? { password: editForm.password } : {}),
         }),
       })
+
+      // Update domain access for non-admin users
+      if (editForm.role !== 'admin') {
+        await fetchAPI(`/api/users/${editingUser.id}/domains`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ domain_ids: editForm.domainIds }),
+        })
+      }
 
       toast.success('User updated')
       setEditingUser(null)
@@ -301,6 +316,34 @@ export function UsersSettings() {
                 </p>
               </div>
 
+              {newUser.role !== 'admin' && domains && domains.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Property Access</Label>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Select which properties this user can access.
+                  </p>
+                  <div className="space-y-2 max-h-40 overflow-y-auto rounded-md border p-3">
+                    {domains.map(domain => (
+                      <label key={domain.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox
+                          checked={newUser.domainIds.includes(domain.id)}
+                          onCheckedChange={(checked) => {
+                            setNewUser(prev => ({
+                              ...prev,
+                              domainIds: checked
+                                ? [...prev.domainIds, domain.id]
+                                : prev.domainIds.filter(id => id !== domain.id),
+                            }))
+                          }}
+                        />
+                        <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>{domain.name || domain.domain}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label htmlFor="create-password">Password</Label>
                 <Input
@@ -391,6 +434,34 @@ export function UsersSettings() {
                   </SelectContent>
                 </Select>
               </div>
+
+              {editForm.role !== 'admin' && domains && domains.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Property Access</Label>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Select which properties this user can access.
+                  </p>
+                  <div className="space-y-2 max-h-40 overflow-y-auto rounded-md border p-3">
+                    {domains.map(domain => (
+                      <label key={domain.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox
+                          checked={editForm.domainIds.includes(domain.id)}
+                          onCheckedChange={(checked) => {
+                            setEditForm(prev => ({
+                              ...prev,
+                              domainIds: checked
+                                ? [...prev.domainIds, domain.id]
+                                : prev.domainIds.filter(id => id !== domain.id),
+                            }))
+                          }}
+                        />
+                        <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span>{domain.name || domain.domain}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label>New Password (optional)</Label>
@@ -500,6 +571,15 @@ export function UsersSettings() {
                         </span>
                       )}
                     </span>
+                    {user.role === 'admin' ? (
+                      <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                        All properties
+                      </span>
+                    ) : (
+                      <span className="px-2 py-1 text-xs rounded-full bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400" title={user.domain_ids?.map(id => domains?.find(d => d.id === id)?.name ?? id).join(', ')}>
+                        {user.domain_ids?.length ?? 0} {(user.domain_ids?.length ?? 0) === 1 ? 'property' : 'properties'}
+                      </span>
+                    )}
                     <span className="text-xs text-muted-foreground hidden sm:block">
                       {formatDate(user.created_at)}
                     </span>
